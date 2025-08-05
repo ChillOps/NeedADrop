@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Target directory (Rust build artifacts)
+target/
+**/target/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Database files (will be created in container)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Upload directory (will be mounted as volume)
+uploads/
+
+# Docker files (not needed in build context except Dockerfile)
+docker-compose.yml
+.dockerignore
+
+# Temporary files
+tmp/
+temp/

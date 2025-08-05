@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeedADrop - Secure File Upload</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .logo {
+            font-size: 2.5em;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 40px;
+        }
+        .btn {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+            margin: 10px;
+            transition: background-color 0.3s;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .features {
+            text-align: left;
+            margin-top: 40px;
+        }
+        .feature {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #ecf0f1;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">📤 NeedADrop</div>
+        <div class="subtitle">Secure File Upload Service</div>
+        
+        <p>Welcome to NeedADrop, a secure file upload service that allows administrators to create time-limited upload links for guests.</p>
+        
+        <a href="/login" class="btn">Admin Login</a>
+        
+        <div class="features">
+            <h3>Features:</h3>
+            <div class="feature">
+                <strong>🔒 Secure Links:</strong> Administrators create unique, secure upload links
+            </div>
+            <div class="feature">
+                <strong>⏰ Time Limited:</strong> Links can expire after a specified time
+            </div>
+            <div class="feature">
+                <strong>📏 Size Limits:</strong> Configurable file size limits per link
+            </div>
+            <div class="feature">
+                <strong>👤 Guest Isolation:</strong> Each upload is stored in a separate folder
+            </div>
+            <div class="feature">
+                <strong>🛡️ Admin Only Access:</strong> Only administrators can view and download files
+            </div>
+        </div>
+    </div>
+</body>
+</html>

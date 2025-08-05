@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Upload Link - NeedADrop Admin</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo {
+            font-size: 2em;
+            color: #2c3e50;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        .btn {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 5px;
+            display: inline-block;
+            margin: 5px 5px 5px 0;
+            transition: background-color 0.3s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        .btn-secondary:hover {
+            background-color: #545b62;
+        }
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .help-text {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+        .form-actions {
+            margin-top: 30px;
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">📤 NeedADrop Admin</div>
+        <div class="user-info">
+            <span>Welcome, {{ username }}!</span>
+            <a href="/admin" class="btn">Dashboard</a>
+            <form action="/logout" method="post" style="display: inline;">
+                <button type="submit" class="btn btn-secondary">Logout</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="container">
+        <h1>Create Upload Link</h1>
+        <p>Create a new secure upload link for guests to upload files.</p>
+        
+        {% match error %}
+        {% when Some with (err) %}
+        <div class="alert">
+            {{ err }}
+        </div>
+        {% when None %}
+        {% endmatch %}
+        
+        <form action="/admin/links/create" method="post">
+            <div class="form-group">
+                <label for="name">Link Name:</label>
+                <input type="text" id="name" name="name" required placeholder="e.g., Client Documents, Project Files">
+                <div class="help-text">A descriptive name for this upload link (shown to users)</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="max_file_size_mb">Maximum File Size (MB):</label>
+                <input type="number" id="max_file_size_mb" name="max_file_size_mb" 
+                       value="10" min="0.1" max="1000" step="0.1" required>
+                <div class="help-text">Maximum file size that can be uploaded (in megabytes)</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="expires_in_hours">Expires In (hours):</label>
+                <input type="number" id="expires_in_hours" name="expires_in_hours" 
+                       min="1" max="8760" placeholder="Leave empty for no expiration">
+                <div class="help-text">Number of hours until the link expires (optional, max 1 year)</div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="submit" class="btn">Create Link</button>
+                <a href="/admin/links" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+        
+        <div style="margin-top: 40px; padding: 20px; background-color: #e8f4fd; border-radius: 5px;">
+            <h3>💡 Tips:</h3>
+            <ul>
+                <li>Choose a descriptive name that helps you identify the purpose of the link</li>
+                <li>Set appropriate file size limits based on your server capacity and intended use</li>
+                <li>Consider setting expiration times for temporary uploads</li>
+                <li>Each guest upload will be stored in a separate, isolated folder</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

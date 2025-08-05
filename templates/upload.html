@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload File - {{ link.name }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .logo {
+            font-size: 2em;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .upload-info {
+            background-color: #e8f4fd;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed #3498db;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+        }
+        .btn {
+            background-color: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .btn:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .file-info {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">📤 {{ link.name }}</div>
+        
+        <div class="upload-info">
+            <h3>Upload Information</h3>
+            <p><strong>Remaining quota:</strong> {{ link.remaining_quota }} bytes</p>
+            <p><strong>Total quota:</strong> {{ link.max_file_size }} bytes</p>
+            {% match link.expires_at %}
+            {% when Some with (expires) %}
+            <p><strong>Link expires:</strong> {{ expires }}</p>
+            {% when None %}
+            {% endmatch %}
+        </div>
+        
+        {% match error %}
+        {% when Some with (err) %}
+        <div class="alert alert-error">
+            {{ err }}
+        </div>
+        {% when None %}
+        {% endmatch %}
+        
+        {% match success %}
+        {% when Some with (msg) %}
+        <div class="alert alert-success">
+            {{ msg }}
+        </div>
+        {% when None %}
+        {% endmatch %}
+        
+        <form action="/upload/{{ link.token }}" method="post" enctype="multipart/form-data" id="uploadForm">
+            <div class="form-group">
+                <label for="file">Select file to upload:</label>
+                <input type="file" id="file" name="file" required>
+                <div class="file-info">
+                    Remaining quota: {{ link.remaining_quota }} bytes
+                </div>
+            </div>
+            
+            <button type="submit" class="btn" id="uploadBtn">Upload File</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', function() {
+            const btn = document.getElementById('uploadBtn');
+            btn.disabled = true;
+            btn.textContent = 'Uploading...';
+        });
+        
+        document.getElementById('file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const remainingQuota = {{ link.remaining_quota }};
+                if (file.size > remainingQuota) {
+                    alert('File size (' + Math.round(file.size / 1024 / 1024 * 10) / 10 + 'MB) exceeds remaining quota (' + Math.round(remainingQuota / 1024 / 1024 * 10) / 10 + 'MB)');
+                    e.target.value = '';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
