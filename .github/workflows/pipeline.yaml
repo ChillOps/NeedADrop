@@ -2,8 +2,9 @@
 name: CI Pipeline
 
 on:
-  tag:
-    types: [created]
+  push:
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
 
 jobs:
