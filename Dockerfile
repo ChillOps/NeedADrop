@@ -1,6 +1,6 @@
 # Multi-stage build for security and efficiency
 # Use the latest stable Rust image with a specific version tag
-FROM rust:1.82-alpine3.20 AS builder
+FROM rust:1-alpine AS builder
 
 # Install system dependencies needed for compilation
 RUN apk add --no-cache \
