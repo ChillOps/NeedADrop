@@ -1,0 +1,40 @@
+---
+name: CI Pipeline
+
+on:
+  tag:
+    types: [created]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to private registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.CHILLOPS_OCR_ADDRESS }}
+          username: ${{ vars.CHILLOPS_OCR_USER }}
+          password: ${{ secrets.CHILLOPS_OCR_PASSWORD }}
+
+      - name: Compute tag
+        id: computed-tag
+        run: |
+          if [[ "${{ github.ref }}" == "refs/tags/"* ]]; then
+            echo "image-tag-name=${{ github.ref_name }}" >>"$GITHUB_OUTPUT"
+          else
+            echo "image-tag-name=next" >>"$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
+          tags: ${{ vars.CHILLOPS_OCR_ADDRESS }}/needadrop:${{ steps.computed-tag.outputs.image-tag-name }}

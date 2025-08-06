@@ -144,11 +144,31 @@ The application uses SQLite with the following main tables:
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests: `cargo test`
+2. Create a feature branch from `develop`: `git checkout -b feature/my-feature develop`
+3. Make your changes following the coding standards
+4. Ensure all tests pass: `cargo test`
 5. Run security audit: `cargo audit`
-6. Submit a pull request
+6. Commit using [Conventional Commits](https://www.conventionalcommits.org/): `git commit -m "feat: add new feature"`
+7. Push to your fork and create a Pull Request to `develop`
+
+### Development Workflow
+
+- **Feature branches** should be created from `develop`
+- **Hotfix branches** should be created from `main`
+- All PRs require passing status checks and code review
+- Releases are automated using [release-please](https://github.com/googleapis/release-please)
+
+### GitHub Actions
+
+The project includes comprehensive CI/CD pipelines:
+
+- **CI Pipeline**: Runs on every PR with formatting, linting, tests, and security checks
+- **Branch Protection**: Comprehensive PR validation with multi-version testing
+- **Docker Registry**: Automated Docker image building and pushing to GitHub Container Registry
+- **Private Registry**: Support for private Docker registries
+- **Release Management**: Automated releases with cross-platform binaries and Docker images
+
+See [GitHub Actions Setup Guide](docs/github-actions-setup.md) for detailed configuration instructions.
 
 ## License
 
