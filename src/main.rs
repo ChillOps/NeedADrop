@@ -95,8 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(index))
         // File upload routes for guests with valid tokens
         // GET: Display upload form  POST: Handle file upload
-        .route("/upload/:token", get(upload_form))
-        .route("/upload/:token", post(handle_upload))
+        .route("/upload/{token}", get(upload_form))
+        .route("/upload/{token}", post(handle_upload))
         // Admin authentication routes
         // GET: Display login form  POST: Process login credentials
         .route("/login", get(login_form))
@@ -109,14 +109,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Admin dashboard with statistics
                 .route("/", get(admin_dashboard))
                 // Upload link management
-                .route("/links", get(admin_links)) // View all upload links
-                .route("/links/create", get(create_link_form)) // Create new link form
-                .route("/links/create", post(handle_create_link)) // Process new link
-                .route("/links/:id/delete", post(delete_link)) // Delete upload link
+                .route("/links", get(admin_links)) // Display all upload links
+                .route("/links/new", get(create_link_form)) // Create new upload link form
+                .route("/links/new", post(handle_create_link)) // Process new upload link
+                .route("/links/{id}/delete", post(delete_link)) // Delete upload link
                 // File management
                 .route("/uploads", get(admin_uploads)) // View all uploaded files
-                .route("/uploads/:id/download", get(download_file)) // Download specific file
-                .route("/uploads/:id/delete", post(delete_upload)) // Delete uploaded file
+                .route("/uploads/{id}/download", get(download_file)) // Download specific file
+                .route("/uploads/{id}/delete", post(delete_upload)) // Delete uploaded file
                 // Admin account management
                 .route("/change-password", get(change_password_form)) // Password change form
                 .route("/change-password", post(handle_change_password)) // Process password change
