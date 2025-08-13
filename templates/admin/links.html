@@ -100,6 +100,14 @@
             display: flex;
             gap: 5px;
         }
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
     </style>
 </head>
 <body>
@@ -115,6 +123,14 @@
     </div>
 
     <div class="container">
+        {% match error %}
+        {% when Some with (err) %}
+        <div class="alert">
+            ❌ {{ err }}
+        </div>
+        {% when None %}
+        {% endmatch %}
+        
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h1>Upload Links</h1>
             <a href="/admin/links/create" class="btn">Create New Link</a>

@@ -1,28 +1,35 @@
 use axum::{
-    extract::{Multipart, Path, State},
-    http::{header, StatusCode},
-    response::{IntoResponse, Redirect},
-    Form,
+    body::Body,
+    extract::{rejection::FormRejection, Form, Multipart, Path, State},
+    http::{header, HeaderMap, StatusCode},
+    response::{IntoResponse, Redirect, Response},
 };
 use chrono::{Duration, Utc};
 use tokio::fs;
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::{
-    auth::*,
-    database::*,
-    models::*,
-    templates::*,
-    AppState,
-};
+use crate::{auth::*, database::*, models::*, templates::*, AppState};
+
+async fn get_session_from_headers(headers: &HeaderMap) -> Option<Session> {
+    let session_id = headers
+        .get(header::COOKIE)
+        .and_then(|header| header.to_str().ok())
+        .and_then(extract_session_id_from_cookies)?;
+
+    get_session(session_id).await
+}
 
 pub async fn upload_form(
     Path(token): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match get_upload_link_by_token(&state.db, &token).await {
+    debug!(token = %token, "Accessing upload form");
+
+    match get_upload_link_by_token(&state.db, &token) {
         Ok(Some(link)) => {
             if link.is_valid() {
+                debug!(link_id = %link.id, link_name = %link.name, "Valid upload link accessed");
                 UploadTemplate {
                     link,
                     error: None,
@@ -30,27 +37,41 @@ pub async fn upload_form(
                 }
                 .into_response()
             } else {
-                (
-                    StatusCode::GONE,
-                    "Upload link has expired or is inactive",
-                )
-                    .into_response()
+                warn!(token = %token, "Expired or inactive upload link accessed");
+                (StatusCode::GONE, "Upload link has expired or is inactive").into_response()
             }
         }
-        Ok(None) => (StatusCode::NOT_FOUND, "Upload link not found").into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+        Ok(None) => {
+            warn!(token = %token, "Upload link not found");
+            (StatusCode::NOT_FOUND, "Upload link not found").into_response()
+        }
+        Err(e) => {
+            error!(token = %token, error = %e, "Database error while fetching upload link");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
+        }
     }
 }
 
 pub async fn handle_upload(
-    Path(token): Path<String>,
     State(state): State<AppState>,
+    Path(token): Path<String>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    info!(token = %token, "File upload initiated");
+
     // Get upload link
-    let link = match get_upload_link_by_token(&state.db, &token).await {
-        Ok(Some(link)) if link.is_valid() => link,
+    let link = match get_upload_link_by_token(&state.db, &token) {
+        Ok(Some(link)) if link.is_valid() => {
+            debug!(
+                link_id = %link.id,
+                link_name = %link.name,
+                remaining_quota = link.remaining_quota,
+                "Valid upload link found"
+            );
+            link
+        }
         Ok(Some(_)) => {
+            warn!(token = %token, "Upload attempted with expired or inactive link");
             return UploadTemplate {
                 link: UploadLink {
                     id: String::new(),
@@ -65,12 +86,14 @@ pub async fn handle_upload(
                 error: Some("Upload link has expired or is inactive".to_string()),
                 success: None,
             }
-            .into_response()
+            .into_response();
         }
         Ok(None) => {
+            warn!(token = %token, "Upload attempted with non-existent link");
             return (StatusCode::NOT_FOUND, "Upload link not found").into_response();
         }
-        Err(_) => {
+        Err(e) => {
+            error!(token = %token, error = %e, "Database error while fetching upload link");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
         }
     };
@@ -78,19 +101,39 @@ pub async fn handle_upload(
     // Process uploaded file
     while let Some(field) = multipart.next_field().await.unwrap_or(None) {
         let name = field.name().unwrap_or("").to_string();
-        
+
         if name == "file" {
-            let filename = field.file_name()
-                .unwrap_or("unnamed_file")
-                .to_string();
-            
-            let content_type = field.content_type()
+            let filename = field.file_name().unwrap_or("unnamed_file").to_string();
+
+            let content_type = field
+                .content_type()
                 .unwrap_or("application/octet-stream")
                 .to_string();
-            
+
+            debug!(
+                filename = %filename,
+                content_type = %content_type,
+                link_id = %link.id,
+                "Processing uploaded file"
+            );
+
             let data = match field.bytes().await {
-                Ok(data) => data,
-                Err(_) => {
+                Ok(data) => {
+                    info!(
+                        filename = %filename,
+                        file_size_mb = data.len() as f64 / 1024.0 / 1024.0,
+                        link_id = %link.id,
+                        "File data read successfully"
+                    );
+                    data
+                }
+                Err(e) => {
+                    error!(
+                        filename = %filename,
+                        link_id = %link.id,
+                        error = %e,
+                        "Failed to read uploaded file"
+                    );
                     return UploadTemplate {
                         link: link.clone(),
                         error: Some("Failed to read uploaded file".to_string()),
@@ -99,9 +142,16 @@ pub async fn handle_upload(
                     .into_response();
                 }
             };
-            
+
             // Check file size against remaining quota
             if !link.can_accept_file(data.len() as i64) {
+                warn!(
+                    filename = %filename,
+                    file_size_mb = data.len() as f64 / 1024.0 / 1024.0,
+                    remaining_quota_mb = link.remaining_quota as f64 / 1024.0 / 1024.0,
+                    link_id = %link.id,
+                    "File size exceeds remaining quota"
+                );
                 return UploadTemplate {
                     link: link.clone(),
                     error: Some(format!(
@@ -114,12 +164,22 @@ pub async fn handle_upload(
                 }
                 .into_response();
             }
-            
-            // Create guest folder
+
+            // Create guest directory
             let guest_folder = Uuid::new_v4().to_string();
             let guest_dir = state.upload_dir.join(&guest_folder);
-            
-            if let Err(_) = fs::create_dir_all(&guest_dir).await {
+
+            debug!(
+                guest_folder = %guest_folder,
+                guest_dir = %guest_dir.display(),
+                "Creating upload directory"
+            );
+
+            if (fs::create_dir_all(&guest_dir).await).is_err() {
+                error!(
+                    guest_dir = %guest_dir.display(),
+                    "Failed to create upload directory"
+                );
                 return UploadTemplate {
                     link: link.clone(),
                     error: Some("Failed to create upload directory".to_string()),
@@ -127,65 +187,105 @@ pub async fn handle_upload(
                 }
                 .into_response();
             }
-            
+
             // Generate unique filename
             let extension = std::path::Path::new(&filename)
                 .extension()
                 .and_then(|ext| ext.to_str())
                 .unwrap_or("");
-            
+
             let stored_filename = if extension.is_empty() {
                 Uuid::new_v4().to_string()
             } else {
                 format!("{}.{}", Uuid::new_v4(), extension)
             };
-            
+
             let file_path = guest_dir.join(&stored_filename);
-            
+
+            debug!(
+                original_filename = %filename,
+                stored_filename = %stored_filename,
+                file_path = %file_path.display(),
+                "Generated unique filename"
+            );
+
             // Write file
             match fs::write(&file_path, &data).await {
                 Ok(_) => {
+                    debug!(
+                        file_path = %file_path.display(),
+                        file_size = data.len(),
+                        "File written to disk successfully"
+                    );
+
                     // Save to database
-                    match create_file_upload(
+                    let db_save_error = match create_file_upload(
                         &state.db,
-                        link.id.clone(),
-                        filename,
-                        stored_filename,
+                        &link.id,
+                        &filename,
+                        &stored_filename,
                         data.len() as i64,
-                        content_type,
-                        guest_folder,
-                    )
-                    .await
-                    {
-                        Ok(_) => {
-                            // Update remaining quota
-                            if let Err(_) = update_remaining_quota(&state.db, &link.id, data.len() as i64).await {
-                                // Even if quota update fails, the file was uploaded successfully
-                                eprintln!("Failed to update remaining quota for link {}", link.id);
-                            }
-                            
-                            return UploadTemplate {
-                                link: link.clone(),
-                                error: None,
-                                success: Some("File uploaded successfully!".to_string()),
-                            }
-                            .into_response();
+                        &content_type,
+                        &guest_folder,
+                    ) {
+                        Ok(_) => None,
+                        Err(e) => Some(format!("{}", e)),
+                    };
+
+                    if let Some(error_msg) = db_save_error {
+                        error!(
+                            original_filename = %filename,
+                            stored_filename = %stored_filename,
+                            link_id = %link.id,
+                            error = %error_msg,
+                            "Failed to save upload information to database"
+                        );
+
+                        // Clean up file on database error
+                        let _ = fs::remove_file(&file_path).await;
+                        let _ = fs::remove_dir(&guest_dir).await;
+
+                        return UploadTemplate {
+                            link: link.clone(),
+                            error: Some("Failed to save upload information".to_string()),
+                            success: None,
                         }
-                        Err(_) => {
-                            // Clean up file on database error
-                            let _ = fs::remove_file(&file_path).await;
-                            let _ = fs::remove_dir(&guest_dir).await;
-                            
-                            return UploadTemplate {
-                                link: link.clone(),
-                                error: Some("Failed to save upload information".to_string()),
-                                success: None,
-                            }
-                            .into_response();
-                        }
+                        .into_response();
                     }
+
+                    // Success case
+                    info!(
+                        original_filename = %filename,
+                        stored_filename = %stored_filename,
+                        file_size_mb = data.len() as f64 / 1024.0 / 1024.0,
+                        link_id = %link.id,
+                        guest_folder = %guest_folder,
+                        "File upload completed successfully"
+                    );
+
+                    // Update remaining quota
+                    if (update_remaining_quota(&state.db, &link.id, data.len() as i64)).is_err() {
+                        // Even if quota update fails, the file was uploaded successfully
+                        error!(
+                            link_id = %link.id,
+                            "Failed to update remaining quota for link"
+                        );
+                    }
+
+                    return UploadTemplate {
+                        link: link.clone(),
+                        error: None,
+                        success: Some("File uploaded successfully!".to_string()),
+                    }
+                    .into_response();
                 }
-                Err(_) => {
+                Err(e) => {
+                    error!(
+                        file_path = %file_path.display(),
+                        error = %e,
+                        "Failed to write file to disk"
+                    );
+
                     return UploadTemplate {
                         link: link.clone(),
                         error: Some("Failed to save uploaded file".to_string()),
@@ -196,7 +296,7 @@ pub async fn handle_upload(
             }
         }
     }
-    
+
     UploadTemplate {
         link,
         error: Some("No file was uploaded".to_string()),
@@ -213,82 +313,144 @@ pub async fn handle_login(
     State(state): State<AppState>,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
-    match get_admin_by_username(&state.db, &form.username).await {
+    info!(username = %form.username, "Login attempt");
+
+    // Extract the admin data and validate
+    let (admin_id, admin_username) = match get_admin_by_username(&state.db, &form.username) {
         Ok(Some(admin)) => {
+            debug!(admin_id = %admin.id, username = %admin.username, "Found admin user");
+
             if verify_password(&form.password, &admin.password_hash) {
-                let session_id = create_session(admin.id, admin.username).await;
-                
-                let redirect = Redirect::to("/admin");
-                let mut response = redirect.into_response();
-                
-                // Set session cookie
-                let cookie = format!("session_id={}; Path=/; HttpOnly; SameSite=Strict", session_id);
-                response.headers_mut().insert(
-                    header::SET_COOKIE,
-                    cookie.parse().unwrap(),
-                );
-                
-                return response;
+                info!(admin_id = %admin.id, username = %admin.username, "Password verification successful");
+                (admin.id, admin.username)
+            } else {
+                warn!(username = %form.username, "Password verification failed");
+                return LoginTemplate {
+                    error: Some("Invalid username or password".to_string()),
+                }
+                .into_response();
             }
         }
-        Ok(None) => {}
-        Err(_) => {
+        Ok(None) => {
+            warn!(username = %form.username, "Admin user not found");
             return LoginTemplate {
-                error: Some("Database error".to_string()),
+                error: Some("Invalid username or password".to_string()),
             }
             .into_response();
         }
-    }
-    
-    LoginTemplate {
-        error: Some("Invalid username or password".to_string()),
+        Err(e) => {
+            let error_msg = format!("{}", e);
+            error!(username = %form.username, error = %error_msg, "Database error during login");
+            return LoginTemplate {
+                error: Some("Invalid username or password".to_string()),
+            }
+            .into_response();
+        }
+    };
+
+    // Now do the async part
+    let session_id = create_session(admin_id, admin_username).await;
+
+    let redirect = Redirect::to("/admin");
+    let mut response = redirect.into_response();
+
+    // Set session cookie
+    let cookie = format!(
+        "session_id={}; Path=/; HttpOnly; SameSite=Strict",
+        session_id
+    );
+    response
+        .headers_mut()
+        .insert(header::SET_COOKIE, cookie.parse().unwrap());
+
+    response
+}
+
+pub async fn admin_dashboard(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    // Get stats for dashboard
+    let active_links_count = match get_all_upload_links(&state.db) {
+        Ok(links) => links.iter().filter(|link| link.is_valid()).count(),
+        Err(_) => 0,
+    };
+
+    let total_uploads_count = match get_all_file_uploads(&state.db) {
+        Ok(uploads) => uploads.len(),
+        Err(_) => 0,
+    };
+
+    AdminDashboardTemplate {
+        username: session.username,
+        active_links: active_links_count,
+        total_uploads: total_uploads_count,
     }
     .into_response()
 }
 
-pub async fn admin_dashboard(State(state): State<AppState>) -> impl IntoResponse {
-    // Get stats for dashboard
-    let active_links_count = match get_all_upload_links(&state.db).await {
-        Ok(links) => links.iter().filter(|link| link.is_valid()).count(),
-        Err(_) => 0,
+pub async fn admin_links(headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
     };
-    
-    let total_uploads_count = match get_all_file_uploads(&state.db).await {
-        Ok(uploads) => uploads.len(),
-        Err(_) => 0,
-    };
-    
-    AdminDashboardTemplate {
-        username: "admin".to_string(), // In a real app, get from session
-        active_links: active_links_count,
-        total_uploads: total_uploads_count,
-    }
-}
 
-pub async fn admin_links(State(state): State<AppState>) -> impl IntoResponse {
-    match get_all_upload_links(&state.db).await {
+    match get_all_upload_links(&state.db) {
         Ok(links) => AdminLinksTemplate {
             links,
-            username: "admin".to_string(),
+            username: session.username,
+            error: None,
         }
         .into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     }
 }
 
-pub async fn create_link_form() -> impl IntoResponse {
+pub async fn create_link_form(headers: HeaderMap) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     CreateLinkTemplate {
         error: None,
-        username: "admin".to_string(),
+        username: session.username,
     }
+    .into_response()
 }
 
 pub async fn handle_create_link(
+    headers: HeaderMap,
     State(state): State<AppState>,
-    Form(form): Form<CreateLinkForm>,
+    form_result: Result<Form<CreateLinkForm>, FormRejection>,
 ) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    // Handle form parsing errors
+    let form = match form_result {
+        Ok(Form(form)) => form,
+        Err(_) => {
+            return CreateLinkTemplate {
+                error: Some(
+                    "Invalid form data. Please check that the expiration time is a valid number."
+                        .to_string(),
+                ),
+                username: session.username,
+            }
+            .into_response();
+        }
+    };
+
     let max_file_size = (form.max_file_size_mb * 1024.0 * 1024.0) as i64;
-    
+
     // Handle empty expiration field
     let expires_at = if let Some(hours) = form.expires_in_hours {
         if hours > 0 {
@@ -299,38 +461,75 @@ pub async fn handle_create_link(
     } else {
         None
     };
-    
-    match create_upload_link(&state.db, form.name, max_file_size, expires_at).await {
+
+    match create_upload_link(&state.db, &form.name, max_file_size, expires_at) {
         Ok(_) => Redirect::to("/admin/links").into_response(),
         Err(_) => CreateLinkTemplate {
             error: Some("Failed to create upload link".to_string()),
-            username: "admin".to_string(),
+            username: session.username,
         }
         .into_response(),
     }
 }
 
 pub async fn delete_link(
+    headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match delete_upload_link(&state.db, &id).await {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    // Check if there are any uploads associated with this link
+    match get_file_uploads_by_link_id(&state.db, &id) {
+        Ok(uploads) => {
+            if !uploads.is_empty() {
+                // There are uploads associated with this link, show error
+                let links = get_all_upload_links(&state.db).unwrap_or_default();
+                return AdminLinksTemplate {
+                    links,
+                    username: session.username,
+                    error: Some("Cannot delete link: it still has uploaded files. Please delete the files first.".to_string()),
+                }
+                .into_response();
+            }
+        }
+        Err(_) => {
+            // Database error checking uploads
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    }
+
+    // No uploads associated, safe to delete
+    match delete_upload_link(&state.db, &id) {
         Ok(_) => Redirect::to("/admin/links").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete link").into_response(),
     }
 }
 
-pub async fn admin_uploads(State(state): State<AppState>) -> impl IntoResponse {
-    match get_all_file_uploads(&state.db).await {
+pub async fn admin_uploads(headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    match get_all_file_uploads(&state.db) {
         Ok(uploads) => {
             // Group uploads by link_id
-            let mut grouped_uploads: std::collections::HashMap<String, (UploadLink, Vec<FileUpload>)> = std::collections::HashMap::new();
-            
+            let mut grouped_uploads: std::collections::HashMap<
+                String,
+                (UploadLink, Vec<FileUpload>),
+            > = std::collections::HashMap::new();
+
             for upload in uploads {
-                if let Ok(Some(link)) = get_upload_link_by_id(&state.db, &upload.link_id).await {
-                    grouped_uploads.entry(upload.link_id.clone())
+                if let Ok(Some(link)) = get_upload_link_by_id(&state.db, &upload.link_id) {
+                    grouped_uploads
+                        .entry(upload.link_id.clone())
                         .or_insert_with(|| (link, Vec::new()))
-                        .1.push(upload);
+                        .1
+                        .push(upload);
                 } else {
                     // If link is not found, create placeholder
                     let placeholder_link = UploadLink {
@@ -343,25 +542,28 @@ pub async fn admin_uploads(State(state): State<AppState>) -> impl IntoResponse {
                         created_at: Utc::now(),
                         is_active: false,
                     };
-                    grouped_uploads.entry(upload.link_id.clone())
+                    grouped_uploads
+                        .entry(upload.link_id.clone())
                         .or_insert_with(|| (placeholder_link, Vec::new()))
-                        .1.push(upload);
+                        .1
+                        .push(upload);
                 }
             }
-            
+
             // Convert to sorted vector for template
-            let mut grouped_vec: Vec<(UploadLink, Vec<FileUpload>)> = grouped_uploads.into_values().collect();
+            let mut grouped_vec: Vec<(UploadLink, Vec<FileUpload>)> =
+                grouped_uploads.into_values().collect();
             // Sort by link creation date (newest first)
             grouped_vec.sort_by(|a, b| b.0.created_at.cmp(&a.0.created_at));
-            
+
             // Sort files within each group by upload date (newest first)
             for (_, uploads) in &mut grouped_vec {
                 uploads.sort_by(|a, b| b.uploaded_at.cmp(&a.uploaded_at));
             }
-            
+
             AdminUploadsTemplate {
                 grouped_uploads: grouped_vec,
-                username: "admin".to_string(),
+                username: session.username,
             }
             .into_response()
         }
@@ -370,74 +572,146 @@ pub async fn admin_uploads(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 pub async fn download_file(
+    headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match get_file_upload_by_id(&state.db, &id).await {
+    // Check authentication
+    let _session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    // Get the file upload record
+    let upload = match get_file_upload_by_id(&state.db, &id) {
         Ok(Some(upload)) => {
-            let file_path = upload.file_path(&state.upload_dir);
-            
-            match fs::read(&file_path).await {
-                Ok(data) => {
-                    let headers = [
-                        (header::CONTENT_TYPE, upload.mime_type.as_str()),
-                        (
-                            header::CONTENT_DISPOSITION,
-                            &format!("attachment; filename=\"{}\"", upload.original_filename),
-                        ),
-                    ];
-                    
-                    (headers, data).into_response()
-                }
-                Err(_) => (StatusCode::NOT_FOUND, "File not found on disk").into_response(),
-            }
+            debug!(
+                upload_id = %id,
+                original_filename = %upload.original_filename,
+                stored_filename = %upload.stored_filename,
+                "Found file upload record"
+            );
+            upload
         }
-        Ok(None) => (StatusCode::NOT_FOUND, "Upload not found").into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+        Ok(None) => {
+            warn!(upload_id = %id, "File upload not found");
+            return (StatusCode::NOT_FOUND, "File not found").into_response();
+        }
+        Err(e) => {
+            error!(upload_id = %id, error = %e, "Database error while fetching file upload");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    };
+
+    // Construct file path
+    let file_path = upload.file_path(&state.upload_dir);
+
+    debug!(
+        upload_id = %id,
+        file_path = %file_path.display(),
+        "Attempting to serve file"
+    );
+
+    // Check if file exists
+    if !file_path.exists() {
+        warn!(
+            upload_id = %id,
+            file_path = %file_path.display(),
+            "File not found on disk"
+        );
+        return (StatusCode::NOT_FOUND, "File not found on disk").into_response();
     }
+
+    // Read file content
+    let file_content = match fs::read(&file_path).await {
+        Ok(content) => {
+            info!(
+                upload_id = %id,
+                original_filename = %upload.original_filename,
+                file_size = content.len(),
+                "File read successfully"
+            );
+            content
+        }
+        Err(e) => {
+            error!(
+                upload_id = %id,
+                file_path = %file_path.display(),
+                error = %e,
+                "Failed to read file"
+            );
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file").into_response();
+        }
+    };
+
+    // Create response with proper headers
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, &upload.mime_type)
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", upload.original_filename),
+        )
+        .header(header::CONTENT_LENGTH, file_content.len())
+        .body(Body::from(file_content))
+        .unwrap();
+
+    response.into_response()
 }
 
 pub async fn delete_upload(
-    Path(id): Path<String>,
     State(state): State<AppState>,
+    Path(id): Path<String>,
 ) -> impl IntoResponse {
-    match get_file_upload_by_id(&state.db, &id).await {
-        Ok(Some(upload)) => {
-            // Delete file from disk
-            let file_path = upload.file_path(&state.upload_dir);
-            if let Err(_) = fs::remove_file(&file_path).await {
-                // File might already be deleted, continue with database deletion
-            }
+    let upload = match get_file_upload_by_id(&state.db, &id) {
+        Ok(Some(upload)) => upload,
+        Ok(None) => return Redirect::to("/admin/uploads"),
+        Err(_) => return Redirect::to("/admin/uploads"),
+    };
 
-            // Delete from database
-            match delete_file_upload(&state.db, &id).await {
-                Ok(_) => Redirect::to("/admin/uploads").into_response(),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete upload").into_response(),
-            }
-        }
-        Ok(None) => (StatusCode::NOT_FOUND, "Upload not found").into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    // Delete file from disk
+    let file_path = upload.file_path(&state.upload_dir);
+    if (fs::remove_file(&file_path).await).is_err() {
+        // File might already be deleted, continue with database deletion
+    }
+
+    // Delete from database
+    match delete_file_upload(&state.db, &id) {
+        Ok(_) => Redirect::to("/admin/uploads"),
+        Err(_) => Redirect::to("/admin/uploads"), // Still redirect on error for now
     }
 }
 
-pub async fn change_password_form() -> impl IntoResponse {
+pub async fn change_password_form(headers: HeaderMap) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     ChangePasswordTemplate {
         error: None,
         success: None,
-        username: "admin".to_string(),
+        username: session.username,
     }
+    .into_response()
 }
 
 pub async fn handle_change_password(
+    headers: HeaderMap,
     State(state): State<AppState>,
     Form(form): Form<ChangePasswordForm>,
 ) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     // Validate that new passwords match
     if form.new_password != form.confirm_password {
         return ChangePasswordTemplate {
             error: Some("New passwords do not match".to_string()),
             success: None,
-            username: "admin".to_string(),
+            username: session.username,
         }
         .into_response();
     }
@@ -447,20 +721,20 @@ pub async fn handle_change_password(
         return ChangePasswordTemplate {
             error: Some("Password must be at least 6 characters long".to_string()),
             success: None,
-            username: "admin".to_string(),
+            username: session.username.clone(),
         }
         .into_response();
     }
 
-    // Get current admin user
-    match get_admin_by_username(&state.db, "admin").await {
+    // Get current admin user (using session username)
+    match get_admin_by_username(&state.db, &session.username) {
         Ok(Some(admin)) => {
             // Verify current password
             if !verify_password(&form.current_password, &admin.password_hash) {
                 return ChangePasswordTemplate {
                     error: Some("Current password is incorrect".to_string()),
                     success: None,
-                    username: "admin".to_string(),
+                    username: session.username,
                 }
                 .into_response();
             }
@@ -472,24 +746,24 @@ pub async fn handle_change_password(
                     return ChangePasswordTemplate {
                         error: Some("Failed to hash new password".to_string()),
                         success: None,
-                        username: "admin".to_string(),
+                        username: session.username,
                     }
                     .into_response();
                 }
             };
 
             // Update password in database
-            match update_admin_password(&state.db, "admin", &new_hash).await {
+            match update_admin_password(&state.db, &session.username, &new_hash) {
                 Ok(_) => ChangePasswordTemplate {
                     error: None,
                     success: Some("Password changed successfully!".to_string()),
-                    username: "admin".to_string(),
+                    username: session.username,
                 }
                 .into_response(),
                 Err(_) => ChangePasswordTemplate {
                     error: Some("Failed to update password in database".to_string()),
                     success: None,
-                    username: "admin".to_string(),
+                    username: session.username,
                 }
                 .into_response(),
             }
@@ -497,28 +771,36 @@ pub async fn handle_change_password(
         Ok(None) => ChangePasswordTemplate {
             error: Some("Admin user not found".to_string()),
             success: None,
-            username: "admin".to_string(),
+            username: session.username,
         }
         .into_response(),
         Err(_) => ChangePasswordTemplate {
             error: Some("Database error".to_string()),
             success: None,
-            username: "admin".to_string(),
+            username: session.username,
         }
         .into_response(),
     }
 }
 
-pub async fn logout() -> impl IntoResponse {
+pub async fn logout(headers: HeaderMap) -> impl IntoResponse {
+    // Extract session ID from cookie header and remove it from server-side store
+    if let Some(session_id) = headers
+        .get(header::COOKIE)
+        .and_then(|header| header.to_str().ok())
+        .and_then(extract_session_id_from_cookies)
+    {
+        remove_session(session_id).await;
+    }
+
     let redirect = Redirect::to("/");
     let mut response = redirect.into_response();
-    
+
     // Clear session cookie
     let cookie = "session_id=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0";
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        cookie.parse().unwrap(),
-    );
-    
+    response
+        .headers_mut()
+        .insert(header::SET_COOKIE, cookie.parse().unwrap());
+
     response
 }

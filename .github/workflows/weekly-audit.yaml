@@ -1,0 +1,48 @@
+name: Weekly Cargo Audit
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # Every Monday at 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cargo-audit:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+
+      - name: Cache Cargo tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/
+          key: ${{ runner.os }}-cargo-tools-audit-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-tools-audit-
+            ${{ runner.os }}-cargo-tools-
+
+      - name: Install cargo-audit tools
+        run: |
+          if ! command -v cargo-audit &> /dev/null; then
+            echo "Installing cargo-audit..."
+            cargo install cargo-audit
+          else
+            echo "cargo-audit already installed"
+          fi
+          if ! command -v cargo-outdated &> /dev/null; then
+            echo "Installing cargo-outdated..."
+            cargo install cargo-outdated
+          else
+            echo "cargo-outdated already installed"
+          fi
+
+      - name: Run cargo audit
+        run: cargo audit
+
+      - name: Run cargo outdated
+        run: cargo outdated

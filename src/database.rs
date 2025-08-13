@@ -1,26 +1,41 @@
-use chrono::Utc;
-use sqlx::SqlitePool;
-use uuid::Uuid;
 use crate::models::*;
+use chrono::Utc;
+use rusqlite::{params, Connection, Result as SqliteResult};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
+use tracing::{debug, info};
+use uuid::Uuid;
 
-pub async fn init_database() -> Result<SqlitePool, sqlx::Error> {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:needadrop.db".to_string());
-    
-    let pool = SqlitePool::connect(&database_url).await?;
-    
-    // Run migrations
-    create_tables(&pool).await?;
-    
-    // Create default admin user if none exists
-    create_default_admin(&pool).await?;
-    
-    Ok(pool)
+pub fn init_database() -> Result<Arc<Mutex<Connection>>, Box<dyn std::error::Error>> {
+    let database_path = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "needadrop.db".to_string())
+        .replace("sqlite:", "");
+
+    info!(database_path = %database_path, "Initializing database");
+
+    // Create parent directories if they don't exist
+    if let Some(parent) = Path::new(&database_path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    debug!("Connecting to database");
+    let conn = Connection::open(&database_path)?;
+
+    info!("Running database migrations");
+    create_tables(&conn)?;
+
+    info!("Checking for default admin user");
+    create_default_admin(&conn)?;
+
+    info!("Database initialization completed successfully");
+    Ok(Arc::new(Mutex::new(conn)))
 }
 
-async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+fn create_tables(conn: &Connection) -> SqliteResult<()> {
     // Create admins table
-    sqlx::query(
+    conn.execute(
         r#"
         CREATE TABLE IF NOT EXISTS admins (
             id TEXT PRIMARY KEY,
@@ -29,12 +44,11 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             created_at TEXT NOT NULL
         )
         "#,
-    )
-    .execute(pool)
-    .await?;
+        [],
+    )?;
 
     // Create upload_links table
-    sqlx::query(
+    conn.execute(
         r#"
         CREATE TABLE IF NOT EXISTS upload_links (
             id TEXT PRIMARY KEY,
@@ -47,22 +61,11 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             is_active BOOLEAN NOT NULL DEFAULT 1
         )
         "#,
-    )
-    .execute(pool)
-    .await?;
-
-    // Add remaining_quota column if it doesn't exist (migration)
-    let _ = sqlx::query("ALTER TABLE upload_links ADD COLUMN remaining_quota INTEGER DEFAULT 0")
-        .execute(pool)
-        .await;
-    
-    // Update existing links to have remaining_quota = max_file_size if remaining_quota is 0
-    sqlx::query("UPDATE upload_links SET remaining_quota = max_file_size WHERE remaining_quota = 0")
-        .execute(pool)
-        .await?;
+        [],
+    )?;
 
     // Create file_uploads table
-    sqlx::query(
+    conn.execute(
         r#"
         CREATE TABLE IF NOT EXISTS file_uploads (
             id TEXT PRIMARY KEY,
@@ -73,217 +76,395 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             mime_type TEXT NOT NULL,
             uploaded_at TEXT NOT NULL,
             guest_folder TEXT NOT NULL,
-            FOREIGN KEY (link_id) REFERENCES upload_links (id)
+            FOREIGN KEY (link_id) REFERENCES upload_links (id) ON DELETE CASCADE
         )
         "#,
-    )
-    .execute(pool)
-    .await?;
+        [],
+    )?;
+
+    // Try to add the remaining_quota column if it doesn't exist (migration)
+    let _ = conn.execute(
+        "ALTER TABLE upload_links ADD COLUMN remaining_quota INTEGER DEFAULT 0",
+        [],
+    );
+
+    // Update existing links to set remaining_quota to max_file_size if it's 0
+    conn.execute(
+        "UPDATE upload_links SET remaining_quota = max_file_size WHERE remaining_quota = 0",
+        [],
+    )?;
 
     Ok(())
 }
 
-async fn create_default_admin(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM admins")
-        .fetch_one(pool)
-        .await?;
+fn create_default_admin(conn: &Connection) -> SqliteResult<()> {
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM admins", [], |row| row.get(0))?;
 
     if count == 0 {
         let admin_id = Uuid::new_v4().to_string();
         let password_hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)
-            .map_err(|e| sqlx::Error::Protocol(format!("Password hashing failed: {}", e)))?;
-        
-        sqlx::query(
-            "INSERT INTO admins (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)"
-        )
-        .bind(&admin_id)
-        .bind("admin")
-        .bind(&password_hash)
-        .bind(Utc::now().to_rfc3339())
-        .execute(pool)
-        .await?;
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
 
-        tracing::info!("Default admin user created: username=admin, password=admin123");
+        conn.execute(
+            "INSERT INTO admins (id, username, password_hash, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![admin_id, "admin", password_hash, Utc::now().to_rfc3339()],
+        )?;
+
+        info!("Created default admin user: admin/admin123");
     }
 
     Ok(())
 }
 
-pub async fn get_admin_by_username(pool: &SqlitePool, username: &str) -> Result<Option<Admin>, sqlx::Error> {
-    let admin = sqlx::query_as::<_, Admin>(
-        "SELECT id, username, password_hash, created_at FROM admins WHERE username = ?"
-    )
-    .bind(username)
-    .fetch_optional(pool)
-    .await?;
+// Database query functions
+pub fn get_admin_by_username(
+    db: &Arc<Mutex<Connection>>,
+    username: &str,
+) -> Result<Option<Admin>, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
 
-    Ok(admin)
+    let mut stmt = conn
+        .prepare("SELECT id, username, password_hash, created_at FROM admins WHERE username = ?")?;
+
+    let admin_result = stmt.query_row([username], |row| {
+        Ok(Admin {
+            id: row.get(0)?,
+            username: row.get(1)?,
+            password_hash: row.get(2)?,
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(3)?)
+                .unwrap()
+                .with_timezone(&Utc),
+        })
+    });
+
+    match admin_result {
+        Ok(admin) => Ok(Some(admin)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(Box::new(e)),
+    }
 }
 
-pub async fn create_upload_link(
-    pool: &SqlitePool,
-    name: String,
+pub fn create_upload_link(
+    db: &Arc<Mutex<Connection>>,
+    name: &str,
     max_file_size: i64,
     expires_at: Option<chrono::DateTime<Utc>>,
-) -> Result<UploadLink, sqlx::Error> {
-    let id = Uuid::new_v4().to_string();
+) -> Result<String, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    let link_id = Uuid::new_v4().to_string();
     let token = Uuid::new_v4().to_string();
-    let created_at = Utc::now();
-    let remaining_quota = max_file_size; // Initially, remaining quota equals max size
 
-    let link = UploadLink {
-        id: id.clone(),
-        token: token.clone(),
-        name: name.clone(),
-        max_file_size,
-        remaining_quota,
-        expires_at,
-        created_at,
-        is_active: true,
-    };
+    conn.execute(
+        "INSERT INTO upload_links (id, token, name, max_file_size, remaining_quota, expires_at, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            &link_id,
+            &token,
+            name,
+            max_file_size,
+            max_file_size, // remaining_quota starts as max_file_size
+            expires_at.map(|dt| dt.to_rfc3339()),
+            Utc::now().to_rfc3339(),
+            true,
+        ],
+    )?;
 
-    sqlx::query(
-        "INSERT INTO upload_links (id, token, name, max_file_size, remaining_quota, expires_at, created_at, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    )
-    .bind(&link.id)
-    .bind(&link.token)
-    .bind(&link.name)
-    .bind(link.max_file_size)
-    .bind(link.remaining_quota)
-    .bind(link.expires_at.as_ref().map(|dt| dt.to_rfc3339()))
-    .bind(link.created_at.to_rfc3339())
-    .bind(link.is_active)
-    .execute(pool)
-    .await?;
+    Ok(token)
+}
 
-    Ok(link)
-}pub async fn get_upload_link_by_token(pool: &SqlitePool, token: &str) -> Result<Option<UploadLink>, sqlx::Error> {
-    let link = sqlx::query_as::<_, UploadLink>(
+pub fn get_upload_link_by_token(
+    db: &Arc<Mutex<Connection>>,
+    token: &str,
+) -> Result<Option<UploadLink>, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    let mut stmt = conn.prepare(
         "SELECT id, token, name, max_file_size, remaining_quota, expires_at, created_at, is_active FROM upload_links WHERE token = ?"
-    )
-    .bind(token)
-    .fetch_optional(pool)
-    .await?;
+    )?;
 
-    Ok(link)
+    let link_result = stmt.query_row([token], |row| {
+        let expires_at_str: Option<String> = row.get(5)?;
+        let expires_at = expires_at_str.map(|s| {
+            chrono::DateTime::parse_from_rfc3339(&s)
+                .unwrap()
+                .with_timezone(&Utc)
+        });
+
+        Ok(UploadLink {
+            id: row.get(0)?,
+            token: row.get(1)?,
+            name: row.get(2)?,
+            max_file_size: row.get(3)?,
+            remaining_quota: row.get(4)?,
+            expires_at,
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
+                .unwrap()
+                .with_timezone(&Utc),
+            is_active: row.get(7)?,
+        })
+    });
+
+    match link_result {
+        Ok(link) => Ok(Some(link)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(Box::new(e)),
+    }
 }
 
-pub async fn get_upload_link_by_id(pool: &SqlitePool, id: &str) -> Result<Option<UploadLink>, sqlx::Error> {
-    let link = sqlx::query_as::<_, UploadLink>(
+pub fn get_upload_link_by_id(
+    db: &Arc<Mutex<Connection>>,
+    id: &str,
+) -> Result<Option<UploadLink>, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    let mut stmt = conn.prepare(
         "SELECT id, token, name, max_file_size, remaining_quota, expires_at, created_at, is_active FROM upload_links WHERE id = ?"
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await?;
+    )?;
 
-    Ok(link)
+    let link_result = stmt.query_row([id], |row| {
+        let expires_at_str: Option<String> = row.get(5)?;
+        let expires_at = expires_at_str.map(|s| {
+            chrono::DateTime::parse_from_rfc3339(&s)
+                .unwrap()
+                .with_timezone(&Utc)
+        });
+
+        Ok(UploadLink {
+            id: row.get(0)?,
+            token: row.get(1)?,
+            name: row.get(2)?,
+            max_file_size: row.get(3)?,
+            remaining_quota: row.get(4)?,
+            expires_at,
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
+                .unwrap()
+                .with_timezone(&Utc),
+            is_active: row.get(7)?,
+        })
+    });
+
+    match link_result {
+        Ok(link) => Ok(Some(link)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(Box::new(e)),
+    }
 }
 
-pub async fn get_all_upload_links(pool: &SqlitePool) -> Result<Vec<UploadLink>, sqlx::Error> {
-    let links = sqlx::query_as::<_, UploadLink>(
+pub fn get_all_upload_links(
+    db: &Arc<Mutex<Connection>>,
+) -> Result<Vec<UploadLink>, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    let mut stmt = conn.prepare(
         "SELECT id, token, name, max_file_size, remaining_quota, expires_at, created_at, is_active FROM upload_links ORDER BY created_at DESC"
-    )
-    .fetch_all(pool)
-    .await?;
+    )?;
+
+    let link_iter = stmt.query_map([], |row| {
+        let expires_at_str: Option<String> = row.get(5)?;
+        let expires_at = expires_at_str.map(|s| {
+            chrono::DateTime::parse_from_rfc3339(&s)
+                .unwrap()
+                .with_timezone(&Utc)
+        });
+
+        Ok(UploadLink {
+            id: row.get(0)?,
+            token: row.get(1)?,
+            name: row.get(2)?,
+            max_file_size: row.get(3)?,
+            remaining_quota: row.get(4)?,
+            expires_at,
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
+                .unwrap()
+                .with_timezone(&Utc),
+            is_active: row.get(7)?,
+        })
+    })?;
+
+    let mut links = Vec::new();
+    for link in link_iter {
+        links.push(link?);
+    }
 
     Ok(links)
 }
 
-pub async fn delete_upload_link(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM upload_links WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+pub fn delete_upload_link(
+    db: &Arc<Mutex<Connection>>,
+    id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    conn.execute("DELETE FROM upload_links WHERE id = ?", [id])?;
 
     Ok(())
 }
 
-pub async fn create_file_upload(
-    pool: &SqlitePool,
-    link_id: String,
-    original_filename: String,
-    stored_filename: String,
+pub fn create_file_upload(
+    db: &Arc<Mutex<Connection>>,
+    link_id: &str,
+    original_filename: &str,
+    stored_filename: &str,
     file_size: i64,
-    mime_type: String,
-    guest_folder: String,
-) -> Result<FileUpload, sqlx::Error> {
+    mime_type: &str,
+    guest_folder: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
     let id = Uuid::new_v4().to_string();
     let uploaded_at = Utc::now();
 
-    let upload = FileUpload {
-        id: id.clone(),
-        link_id,
-        original_filename,
-        stored_filename,
-        file_size,
-        mime_type,
-        uploaded_at,
-        guest_folder,
-    };
+    conn.execute(
+        "INSERT INTO file_uploads (id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![
+            &id,
+            link_id,
+            original_filename,
+            stored_filename,
+            file_size,
+            mime_type,
+            uploaded_at.to_rfc3339(),
+            guest_folder,
+        ],
+    )?;
 
-    sqlx::query(
-        "INSERT INTO file_uploads (id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    )
-    .bind(&upload.id)
-    .bind(&upload.link_id)
-    .bind(&upload.original_filename)
-    .bind(&upload.stored_filename)
-    .bind(upload.file_size)
-    .bind(&upload.mime_type)
-    .bind(upload.uploaded_at.to_rfc3339())
-    .bind(&upload.guest_folder)
-    .execute(pool)
-    .await?;
-
-    Ok(upload)
+    Ok(id)
 }
 
-pub async fn get_all_file_uploads(pool: &SqlitePool) -> Result<Vec<FileUpload>, sqlx::Error> {
-    let uploads = sqlx::query_as::<_, FileUpload>(
+pub fn get_all_file_uploads(
+    db: &Arc<Mutex<Connection>>,
+) -> Result<Vec<FileUpload>, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    let mut stmt = conn.prepare(
         "SELECT id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder FROM file_uploads ORDER BY uploaded_at DESC"
-    )
-    .fetch_all(pool)
-    .await?;
+    )?;
+
+    let upload_iter = stmt.query_map([], |row| {
+        Ok(FileUpload {
+            id: row.get(0)?,
+            link_id: row.get(1)?,
+            original_filename: row.get(2)?,
+            stored_filename: row.get(3)?,
+            file_size: row.get(4)?,
+            mime_type: row.get(5)?,
+            uploaded_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
+                .unwrap()
+                .with_timezone(&Utc),
+            guest_folder: row.get(7)?,
+        })
+    })?;
+
+    let mut uploads = Vec::new();
+    for upload in upload_iter {
+        uploads.push(upload?);
+    }
 
     Ok(uploads)
 }
 
-pub async fn get_file_upload_by_id(pool: &SqlitePool, id: &str) -> Result<Option<FileUpload>, sqlx::Error> {
-    let upload = sqlx::query_as::<_, FileUpload>(
+pub fn get_file_uploads_by_link_id(
+    db: &Arc<Mutex<Connection>>,
+    link_id: &str,
+) -> Result<Vec<FileUpload>, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    let mut stmt = conn.prepare(
+        "SELECT id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder FROM file_uploads WHERE link_id = ? ORDER BY uploaded_at DESC"
+    )?;
+
+    let upload_iter = stmt.query_map([link_id], |row| {
+        Ok(FileUpload {
+            id: row.get(0)?,
+            link_id: row.get(1)?,
+            original_filename: row.get(2)?,
+            stored_filename: row.get(3)?,
+            file_size: row.get(4)?,
+            mime_type: row.get(5)?,
+            uploaded_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
+                .unwrap()
+                .with_timezone(&Utc),
+            guest_folder: row.get(7)?,
+        })
+    })?;
+
+    let mut uploads = Vec::new();
+    for upload in upload_iter {
+        uploads.push(upload?);
+    }
+
+    Ok(uploads)
+}
+
+pub fn get_file_upload_by_id(
+    db: &Arc<Mutex<Connection>>,
+    id: &str,
+) -> Result<Option<FileUpload>, Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    let mut stmt = conn.prepare(
         "SELECT id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder FROM file_uploads WHERE id = ?"
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await?;
+    )?;
 
-    Ok(upload)
+    let upload_result = stmt.query_row([id], |row| {
+        Ok(FileUpload {
+            id: row.get(0)?,
+            link_id: row.get(1)?,
+            original_filename: row.get(2)?,
+            stored_filename: row.get(3)?,
+            file_size: row.get(4)?,
+            mime_type: row.get(5)?,
+            uploaded_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
+                .unwrap()
+                .with_timezone(&Utc),
+            guest_folder: row.get(7)?,
+        })
+    });
+
+    match upload_result {
+        Ok(upload) => Ok(Some(upload)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(Box::new(e)),
+    }
 }
 
-pub async fn update_admin_password(pool: &SqlitePool, username: &str, new_password_hash: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE admins SET password_hash = ? WHERE username = ?")
-        .bind(new_password_hash)
-        .bind(username)
-        .execute(pool)
-        .await?;
+pub fn update_admin_password(
+    db: &Arc<Mutex<Connection>>,
+    username: &str,
+    new_password_hash: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    conn.execute(
+        "UPDATE admins SET password_hash = ? WHERE username = ?",
+        params![new_password_hash, username],
+    )?;
 
     Ok(())
 }
 
-pub async fn update_remaining_quota(pool: &SqlitePool, link_id: &str, uploaded_size: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE upload_links SET remaining_quota = remaining_quota - ? WHERE id = ?")
-        .bind(uploaded_size)
-        .bind(link_id)
-        .execute(pool)
-        .await?;
+pub fn update_remaining_quota(
+    db: &Arc<Mutex<Connection>>,
+    link_id: &str,
+    uploaded_size: i64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    conn.execute(
+        "UPDATE upload_links SET remaining_quota = remaining_quota - ? WHERE id = ?",
+        params![uploaded_size, link_id],
+    )?;
 
     Ok(())
 }
 
-pub async fn delete_file_upload(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM file_uploads WHERE id = ?")
-        .bind(id)
-        .execute(pool)
-        .await?;
+pub fn delete_file_upload(
+    db: &Arc<Mutex<Connection>>,
+    id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = db.lock().unwrap();
+
+    conn.execute("DELETE FROM file_uploads WHERE id = ?", [id])?;
 
     Ok(())
 }

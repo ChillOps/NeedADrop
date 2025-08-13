@@ -2,340 +2,235 @@
 
 A secure file upload application built with Rust and Axum framework. Features quota-based uploads, admin interface, and session-based authentication.
 
-## Features
+## ✨ Features
 
-- **Secure File Uploads**: Upload files with configurable size limits and quota management
-- **Admin Interface**: Manage uploaded files and monitor system usage
-- **Quota System**: Per-link quota management to control storage usage
-- **Authentication**: Secure session-based authentication with bcrypt password hashing
-- **Password Management**: Admin can change passwords through the web interface
-- **File Organization**: Files are grouped by upload links with isolated storage
-- **Real-time Statistics**: Dashboard shows actual file counts and storage metrics
+- **🔒 Secure Upload Links**: Administrators create unique, time-limited upload links with tokens
+- **📏 Quota-Based Limits**: Set total upload quota per link that decreases with each upload
+- **👤 Guest Isolation**: Each upload link stores files in a separate, isolated folder
+- **🛡️ Admin-Only Access**: Only administrators can view, download, and manage uploaded files
+- **🎨 Modern Interface**: Clean, responsive web interface with glassmorphism design
+- **📊 Real-time Statistics**: Dashboard shows actual file counts and storage metrics
+- **🔐 Security First**: Bcrypt password hashing, session authentication, SQL injection protection
 
-## Security Features
-
-- No default credentials exposed
-- Bcrypt password hashing
-- Session-based authentication
-- Isolated file storage per upload link
-- Input validation and sanitization
-- SQL injection protection with SQLx
-- CORS protection
-- Dependency vulnerability monitoring
-
-## Quick Start with Docker
-
-### Prerequisites
-- Docker and Docker Compose installed
+## 🚀 Quick Start
 
 ### Using Docker Compose (Recommended)
 
-1. Clone the repository:
+1. Clone and start:
 ```bash
 git clone <repository-url>
 cd NeedADrop
-```
-
-2. Start the application:
-```bash
 docker-compose up -d
 ```
 
-3. Access the application at `http://localhost:3000`
+2. Access at `http://localhost:3000`
+3. Login with: `admin` / `admin123` (change immediately!)
 
-### Manual Docker Build
+### Local Development
 
-1. Build the image:
+1. Prerequisites: Rust 1.70+, SQLite 3
+
+2. Run locally:
 ```bash
-docker build -t needadrop .
+git clone <repository-url>
+cd NeedADrop
+cargo run
 ```
 
-2. Run the container:
+3. Access at `http://localhost:3000`
+
+## 🔧 Configuration
+
+Environment variables:
+- `DATABASE_URL`: SQLite database path (default: `sqlite://needadrop.db`)
+- `UPLOAD_DIR`: Directory for uploads (default: `./uploads`)
+- `PORT`: Server port (default: `3000`)
+- `RUST_LOG`: Logging level (default: `info`)
+
+### 📋 Logging Configuration
+
+NeedADrop uses structured logging with configurable levels:
+
 ```bash
+# Basic logging levels
+RUST_LOG=info                    # Standard production logging
+RUST_LOG=debug                   # Detailed debugging information
+RUST_LOG=warn                    # Warnings and errors only
+RUST_LOG=error                   # Errors only
+
+# Module-specific logging
+RUST_LOG=needadrop=debug,info   # Debug for app, info for dependencies
+RUST_LOG=needadrop::handlers=debug,needadrop::database=info,warn
+
+# Examples
+cargo run                                    # Default INFO level
+RUST_LOG=debug cargo run                     # Full debug output
+RUST_LOG=needadrop=warn,warn cargo run      # Minimal logging
+```
+
+**Log Features:**
+- 🎯 **Structured Data**: Key-value pairs for easy parsing
+- 📍 **Source Location**: File names and line numbers
+- 🧵 **Thread Information**: Multi-threaded request tracking
+- 🕐 **Timestamps**: Precise timing for debugging
+- 🔍 **Contextual Info**: User IDs, file names, link IDs, etc.
+
+See [LOGGING.md](LOGGING.md) for detailed documentation.
+
+## 🏗️ CI/CD & GitHub Actions
+
+Complete automation pipeline included:
+
+- **✅ CI Pipeline**: Formatting, linting, tests, security checks
+- **🐋 Docker Registry**: Multi-arch builds pushed to GitHub Container Registry
+- **🔐 Private Registry**: Support for private Docker registries
+- **📦 Release Management**: Automated releases with cross-platform binaries
+- **🛡️ Branch Protection**: Comprehensive PR validation
+
+See [GitHub Actions Setup Guide](docs/github-actions-setup.md) for detailed configuration.
+
+## 📁 Usage
+
+### For Administrators
+
+1. **Login**: Navigate to `/admin`
+2. **Create Upload Links**: Set name, quota, and optional expiration
+3. **Share Links**: Distribute upload URLs to guests
+4. **Manage Files**: View, download, or delete uploads by link
+5. **Change Password**: Update credentials in admin settings
+
+### For Guests
+
+1. **Access Upload Form**: Use the link provided by admin
+2. **Upload Files**: Drag & drop or browse files within quota
+3. **Visual Feedback**: Real-time quota usage and file type icons
+4. **Multiple Uploads**: Continue until quota is exhausted
+
+## 🛡️ Security Features
+
+- **Token-based Access**: UUID tokens for upload links
+- **Time-based Expiration**: Automatic link expiration
+- **Quota Validation**: Server-side enforcement
+- **Path Isolation**: Separate directories per upload link
+- **Authentication**: Bcrypt-hashed passwords with sessions
+- **Dependency Auditing**: Regular vulnerability scanning with `cargo audit`
+- **Security Monitoring**: See [SECURITY_AUDIT.md](SECURITY_AUDIT.md) for current security status
+
+## 🏗️ Project Structure
+
+```
+src/
+├── main.rs          # Application entry point
+├── models.rs        # Data models and structures
+├── database.rs      # Database operations
+├── handlers.rs      # HTTP request handlers
+└── auth.rs          # Authentication & sessions
+
+templates/           # Askama HTML templates
+├── upload.html      # Modern file upload interface
+├── login.html       # Admin login form
+└── admin/           # Admin panel templates
+
+.github/workflows/   # CI/CD automation
+├── ci.yml           # Basic CI pipeline
+├── docker.yml       # Docker registry builds
+├── private-registry.yml # Private registry support
+├── release.yml      # Automated releases
+└── branch-protection.yml # PR validation
+```
+
+## 🛠️ Development
+
+### Local Setup
+```bash
+# Build and run
+cargo run
+
+# Run tests
+cargo test
+
+# Security audit
+cargo audit
+
+# Format code
+cargo fmt
+
+# Check for outdated dependencies
+cargo outdated
+```
+
+### Current Dependency Status (Updated August 2025)
+```toml
+[dependencies]
+axum = { version = "0.8", features = ["multipart", "macros"] }  # Latest web framework
+tokio = { version = "1.47", features = ["full"] }              # Async runtime
+tower = "0.5"                                                  # Service abstraction layer
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }  # HTTP middleware
+rusqlite = { version = "0.37", features = ["chrono", "bundled"] }      # SQLite database
+bcrypt = "0.17"                                                # Password hashing
+chrono = { version = "0.4", features = ["serde"] }            # Date/time handling
+tracing = "0.1"                                                # Structured logging
+```
+
+### Code Quality & Security
+- **✅ No Security Vulnerabilities**: All dependencies audited and secure
+- **🔧 Code Formatting**: Consistent style with `cargo fmt`
+- **🔍 Linting**: Code quality enforced with `cargo clippy`
+- **📦 Latest Dependencies**: All dependencies updated to latest versions (August 2025)
+- **🛡️ Security Auditing**: Automated vulnerability scanning
+
+**Latest Update Results:**
+- Security vulnerabilities: **0 found** ✅
+- Dependencies: **All up to date** ✅ (Axum 0.8, Tower 0.5, Rusqlite 0.37, Tower-HTTP 0.6)
+- Code formatting: **Clean** ✅
+- Compilation: **Successful** ✅
+
+### Contributing
+
+1. **Feature branches** from `develop`
+2. **Conventional Commits**: `feat:`, `fix:`, `docs:`, etc.
+3. **PR Requirements**: Pass all checks, code review
+4. **Automated Releases**: Using [release-please](https://github.com/googleapis/release-please)
+
+## 🐋 Docker
+
+### Production Deployment
+```bash
+# Using Docker Compose
+docker-compose up -d
+
+# Manual deployment
 docker run -d \
   --name needadrop \
   -p 3000:3000 \
   -v needadrop_data:/app/data \
   -v needadrop_uploads:/app/uploads \
-  needadrop
+  ghcr.io/your-username/needadrop:latest
 ```
 
-## Development Setup
+### Security Features
+- Multi-stage builds with minimal Alpine base
+- Non-root user execution
+- Read-only filesystem
+- Health checks and proper signal handling
+- Vulnerability scanning with Trivy
 
-### Prerequisites
-- Rust 1.70+ (latest stable recommended)
-- SQLite 3
+## 📚 API Reference
 
-### Local Development
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd NeedADrop
-```
-
-2. Install dependencies:
-```bash
-cargo build
-```
-
-3. Run the application:
-```bash
-cargo run
-```
-
-4. Access the application at `http://localhost:3000`
-
-## Configuration
-
-The application can be configured using environment variables:
-
-- `DATABASE_URL`: SQLite database path (default: `sqlite://needadrop.db`)
-- `UPLOAD_DIR`: Directory for file uploads (default: `./uploads`)
-- `PORT`: Server port (default: `3000`)
-- `RUST_LOG`: Logging level (default: `info`)
-
-## Security Audit
-
-Dependencies are regularly audited for vulnerabilities:
-
-```bash
-# Install cargo-audit
-cargo install cargo-audit
-
-# Run security audit
-cargo audit
-```
-
-## Docker Security
-
-The Docker setup includes several security best practices:
-
-- **Multi-stage build**: Minimizes final image size and attack surface
-- **Non-root user**: Application runs as unprivileged user
-- **Alpine Linux**: Minimal base image with fewer vulnerabilities
-- **Read-only filesystem**: Container filesystem is read-only except for specific directories
-- **Dropped capabilities**: Minimal Linux capabilities
-- **Health checks**: Container health monitoring
-- **Tini init system**: Proper signal handling and zombie process reaping
-
-## API Endpoints
-
-- `GET /` - Main upload interface
-- `POST /upload` - Upload files
-- `GET /admin` - Admin login page
-- `POST /admin/login` - Admin authentication
-- `GET /admin/dashboard` - Admin dashboard
-- `GET /admin/uploads` - View uploaded files
-- `POST /admin/delete/<file_id>` - Delete files
-- `GET /admin/change-password` - Change password form
-- `POST /admin/change-password` - Update password
-- `POST /admin/logout` - Admin logout
-- `GET /files/<link_id>/<filename>` - Download files
-
-## Database Schema
-
-The application uses SQLite with the following main tables:
-
-- `upload_links`: Stores upload link information and quotas
-- `uploaded_files`: Stores file metadata and paths
-- `admin_users`: Stores admin credentials (hashed)
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch from `develop`: `git checkout -b feature/my-feature develop`
-3. Make your changes following the coding standards
-4. Ensure all tests pass: `cargo test`
-5. Run security audit: `cargo audit`
-6. Commit using [Conventional Commits](https://www.conventionalcommits.org/): `git commit -m "feat: add new feature"`
-7. Push to your fork and create a Pull Request to `develop`
-
-### Development Workflow
-
-- **Feature branches** should be created from `develop`
-- **Hotfix branches** should be created from `main`
-- All PRs require passing status checks and code review
-- Releases are automated using [release-please](https://github.com/googleapis/release-please)
-
-### GitHub Actions
-
-The project includes comprehensive CI/CD pipelines:
-
-- **CI Pipeline**: Runs on every PR with formatting, linting, tests, and security checks
-- **Branch Protection**: Comprehensive PR validation with multi-version testing
-- **Docker Registry**: Automated Docker image building and pushing to GitHub Container Registry
-- **Private Registry**: Support for private Docker registries
-- **Release Management**: Automated releases with cross-platform binaries and Docker images
-
-See [GitHub Actions Setup Guide](docs/github-actions-setup.md) for detailed configuration instructions.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-- 🔒 **Secure Upload Links**: Administrators create unique, secure upload links with tokens
-- ⏰ **Time-Limited Links**: Links can expire after a specified time period
-- 📏 **Quota-Based Size Limits**: Set total upload quota per link that decreases with each upload
-- 👤 **Guest Isolation**: Each guest upload is stored in a separate, isolated folder
-- 🛡️ **Admin-Only Access**: Only administrators can view, download, and manage uploaded files
-- 🗄️ **SQLite Database**: Lightweight database for storing metadata
-- 🎨 **Clean Web Interface**: Modern, responsive web interface for both guests and admins
-- 📊 **Grouped File Management**: Files are organized and displayed by upload link
-
-## Quick Start
-
-### Prerequisites
-
-- Rust (latest stable version)
-- SQLite3
-
-### Installation
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd NeedADrop
-```
-
-2. Build and run the application:
-```bash
-cargo run
-```
-
-3. Open your browser and navigate to `http://localhost:3000`
-
-### Default Admin Credentials
-
-- **Username**: `admin`
-- **Password**: `admin123`
-
-⚠️ **Important**: Change the default password immediately after first login in a production environment.
-
-## Usage
-
-### For Administrators
-
-1. **Login**: Go to `/login` and use the admin credentials
-2. **Create Upload Links**: 
-   - Navigate to "Manage Upload Links"
-   - Click "Create New Link"
-   - Set a descriptive name, total upload quota (not per-file limit), and optional expiration time
-   - Share the generated upload URL with guests
-3. **Manage Uploads**: View all uploaded files grouped by upload link, download them, or delete unwanted uploads
-4. **Change Password**: Update admin credentials through the account settings
-
-### For Guests
-
-1. **Access Upload Form**: Use the upload link provided by the administrator
-2. **Upload Files**: Select and upload files within the remaining quota limits
-3. **Multiple Uploads**: Continue uploading until the quota is exhausted
-4. **Confirmation**: Receive confirmation when each upload is successful
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file in the project root:
-
-```env
-DATABASE_URL=sqlite:needadrop.db
-```
-
-### File Storage
-
-- Uploaded files are stored in the `uploads/` directory
-- Each guest upload gets its own isolated folder
-- Folder structure: `uploads/{guest-folder-uuid}/{stored-filename}`
-
-## API Endpoints
-
-### Public Routes
-- `GET /` - Home page
+### Public Endpoints
 - `GET /upload/{token}` - Upload form for guests
-- `POST /upload/{token}` - Handle file upload
-- `GET /login` - Admin login form
-- `POST /login` - Handle admin login
+- `POST /upload/{token}` - File upload handling
 
-### Admin Routes (Requires Authentication)
-- `GET /admin` - Admin dashboard
-- `GET /admin/links` - View all upload links
-- `GET /admin/links/create` - Create new upload link form
-- `POST /admin/links/create` - Handle link creation
-- `POST /admin/links/{id}/delete` - Delete upload link
+### Admin Endpoints
+- `GET /admin` - Dashboard
+- `GET /admin/links` - Manage upload links
 - `GET /admin/uploads` - View all uploads
-- `GET /admin/uploads/{id}/download` - Download file
-- `POST /admin/uploads/{id}/delete` - Delete upload
-- `GET /admin/change-password` - Change admin password form
-- `POST /admin/change-password` - Handle password change
-- `POST /logout` - Admin logout
+- `POST /admin/change-password` - Update password
 
-## Security Features
+## 📄 License
 
-- **Token-based Access**: Upload links use UUID tokens for security
-- **Time-based Expiration**: Links can automatically expire
-- **Quota Validation**: Server-side quota checking and enforcement
-- **Path Isolation**: Guest uploads are isolated in separate directories
-- **Admin Authentication**: Bcrypt-hashed passwords with session management
-- **Password Management**: Admins can change their passwords securely
+MIT License - see LICENSE file for details.
 
-## Development
+---
 
-### Project Structure
-
-```
-src/
-├── main.rs          # Main application entry point
-├── models.rs        # Data models and structures
-├── database.rs      # Database operations and migrations
-├── handlers.rs      # HTTP request handlers
-├── auth.rs          # Authentication and session management
-└── templates.rs     # Template definitions
-
-templates/           # Askama HTML templates
-├── index.html
-├── login.html
-├── upload.html
-└── admin/
-    ├── dashboard.html
-    ├── links.html
-    ├── create_link.html
-    └── uploads.html
-
-static/              # Static assets (CSS, JS, images)
-uploads/             # File upload storage (created at runtime)
-```
-
-### Dependencies
-
-- **axum**: Web framework
-- **tokio**: Async runtime
-- **sqlx**: Database toolkit
-- **askama**: Template engine
-- **bcrypt**: Password hashing
-- **uuid**: UUID generation
-- **chrono**: Date/time handling
-
-### Building for Production
-
-```bash
-cargo build --release
-```
-
-The binary will be available at `target/release/needadrop`.
-
-## License
-
-This project is open source. Please check the license file for details.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## Support
-
-For issues, questions, or contributions, please open an issue on the repository.
+**Need help?** Open an issue on the repository for support, questions, or contributions.
