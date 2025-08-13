@@ -229,7 +229,9 @@ docker run -d \
 
 ## 📄 License
 
-MIT License - see LICENSE file for details.
+This project is licensed under the GLWTPL (Good Luck With That Public License) - see [LICENSE](LICENSE.md) file for details.
+
+**TL;DR**: You can do whatever you want with this code, but don't blame the author if something goes wrong. Good luck! 🍀
 
 ---
 
