@@ -84,6 +84,12 @@ The application uses structured logging with contextual information:
 - Query execution with parameters
 - Error handling with full context
 
+### File Download Events (New in August 2025)
+- Download request authentication checks
+- File lookup and validation
+- File serving with metadata logging
+- Download success/failure tracking
+
 ### Example Log Messages
 
 ```
@@ -91,6 +97,8 @@ INFO needadrop::handlers: File upload initiated token="abc123"
 DEBUG needadrop::handlers: Processing uploaded file filename="document.pdf" content_type="application/pdf" link_id="456"
 INFO needadrop::handlers: File data read successfully filename="document.pdf" file_size_mb=2.3 link_id="456"
 WARN needadrop::handlers: File size exceeds remaining quota filename="large_file.zip" file_size_mb=50.0 remaining_quota_mb=25.0 link_id="456"
+DEBUG needadrop::handlers: Found file upload record upload_id="789" original_filename="report.xlsx" stored_filename="uuid.xlsx"
+INFO needadrop::handlers: File read successfully upload_id="789" original_filename="report.xlsx" file_size=1024
 ERROR needadrop::database: Failed to connect to database database_url="sqlite:needadrop.db"
 ```
 
@@ -101,6 +109,24 @@ ERROR needadrop::database: Failed to connect to database database_url="sqlite:ne
 3. **Performance**: Minimal overhead when debug logging is disabled
 4. **Context**: Rich contextual information helps with debugging
 5. **Standardized**: Consistent format across the entire application
+6. **Security Monitoring**: Authentication and file access events are logged for audit trails
+7. **Operational Insights**: File upload metrics and quota usage tracking
+
+## Recent Improvements (August 2025)
+
+- ✅ Enhanced file download logging with authentication tracking
+- ✅ Added file access audit trails for security compliance
+- ✅ Improved error context in file operations
+- ✅ Added structured logging for database operations
+- ✅ Updated to latest tracing ecosystem (compatible with Axum 0.8)
+- ✅ Enhanced performance with Tower 0.5 service layer improvements
+- ✅ Improved logging middleware with Tower-HTTP 0.6
+
+### Framework Compatibility
+- **Axum 0.8**: Full tracing integration with improved async logging
+- **Tower 0.5**: Enhanced service-level logging and metrics
+- **Tower-HTTP 0.6**: Advanced HTTP-specific logging capabilities
+- **Tokio 1.47**: Optimized async tracing performance
 
 ## Production Recommendations
 

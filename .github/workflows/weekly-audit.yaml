@@ -16,7 +16,10 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit
+        run: cargo install cargo-audit cargo-outdated
 
       - name: Run cargo audit
         run: cargo audit
+
+      - name: Run cargo outdated
+        run: cargo outdated
