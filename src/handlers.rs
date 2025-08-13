@@ -117,7 +117,7 @@ pub async fn handle_upload(
             let guest_folder = Uuid::new_v4().to_string();
             let guest_dir = state.upload_dir.join(&guest_folder);
 
-            if let Err(_) = fs::create_dir_all(&guest_dir).await {
+            if (fs::create_dir_all(&guest_dir).await).is_err() {
                 return UploadTemplate {
                     link: link.clone(),
                     error: Some("Failed to create upload directory".to_string()),
@@ -157,8 +157,9 @@ pub async fn handle_upload(
                     {
                         Ok(_) => {
                             // Update remaining quota
-                            if let Err(_) =
-                                update_remaining_quota(&state.db, &link.id, data.len() as i64).await
+                            if (update_remaining_quota(&state.db, &link.id, data.len() as i64)
+                                .await)
+                                .is_err()
                             {
                                 // Even if quota update fails, the file was uploaded successfully
                                 eprintln!("Failed to update remaining quota for link {}", link.id);
@@ -213,17 +214,11 @@ pub async fn handle_login(
     State(state): State<AppState>,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
-    println!(
-        "Login attempt - username: '{}', password length: {}",
-        form.username,
-        form.password.len()
-    );
+    println!("Login attempt - username: '{}'", form.username);
 
     match get_admin_by_username(&state.db, &form.username).await {
         Ok(Some(admin)) => {
             println!("Found admin user: {}", admin.username);
-            println!("Stored hash: {}", admin.password_hash);
-            println!("Provided password: '{}'", form.password);
 
             if verify_password(&form.password, &admin.password_hash) {
                 println!("Password verification SUCCESS");
@@ -501,7 +496,7 @@ pub async fn delete_upload(
         Ok(Some(upload)) => {
             // Delete file from disk
             let file_path = upload.file_path(&state.upload_dir);
-            if let Err(_) = fs::remove_file(&file_path).await {
+            if (fs::remove_file(&file_path).await).is_err() {
                 // File might already be deleted, continue with database deletion
             }
 

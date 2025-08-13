@@ -90,10 +90,6 @@ impl UploadLink {
     pub fn formatted_max_size(&self) -> String {
         format_file_size(self.max_file_size)
     }
-
-    pub fn formatted_remaining_quota(&self) -> String {
-        format_file_size(self.remaining_quota)
-    }
 }
 
 impl FileUpload {

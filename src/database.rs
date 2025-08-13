@@ -19,19 +19,19 @@ pub async fn init_database() -> Result<SqlitePool, sqlx::Error> {
         // Create parent directories if they don't exist
         if let Some(parent) = Path::new(db_path).parent() {
             fs::create_dir_all(parent).await.map_err(|e| {
-                sqlx::Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to create database directory: {}", e),
-                ))
+                sqlx::Error::Io(std::io::Error::other(format!(
+                    "Failed to create database directory: {}",
+                    e
+                )))
             })?;
         }
 
         // Create empty database file
         fs::File::create(db_path).await.map_err(|e| {
-            sqlx::Error::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to create database file: {}", e),
-            ))
+            sqlx::Error::Io(std::io::Error::other(format!(
+                "Failed to create database file: {}",
+                e
+            )))
         })?;
     }
 
