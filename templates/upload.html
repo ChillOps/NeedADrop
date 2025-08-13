@@ -5,104 +5,312 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Upload File - {{ link.name }}</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         body {
-            font-family: Arial, sans-serif;
-            max-width: 600px;
-            margin: 0 auto;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 20px;
-            background-color: #f5f5f5;
         }
+        
         .container {
-            background-color: white;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             padding: 40px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 600px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
+        
         .logo {
-            font-size: 2em;
-            color: #2c3e50;
-            margin-bottom: 20px;
+            font-size: 2.5em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
             text-align: center;
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
         }
+        
         .upload-info {
-            background-color: #e8f4fd;
-            padding: 20px;
-            border-radius: 5px;
-            margin-bottom: 20px;
+            background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            border-left: 4px solid #667eea;
         }
+        
+        .upload-info h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #555;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        
+        .info-value {
+            font-weight: 700;
+            color: #2c3e50;
+            font-size: 1.1em;
+        }
+        
+        .quota-bar {
+            width: 100%;
+            height: 8px;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        .quota-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4caf50, #8bc34a);
+            transition: width 0.3s ease;
+        }
+        
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 30px;
         }
+        
         label {
             display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 1.1em;
         }
+        
+        .file-input-container {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+        
         input[type="file"] {
+            position: absolute;
+            opacity: 0;
             width: 100%;
-            padding: 10px;
-            border: 2px dashed #3498db;
-            border-radius: 5px;
-            background-color: #f8f9fa;
-        }
-        .btn {
-            background-color: #3498db;
-            color: white;
-            padding: 12px 24px;
-            border: none;
-            border-radius: 5px;
+            height: 100%;
             cursor: pointer;
-            font-size: 16px;
+        }
+        
+        .file-input-label {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             width: 100%;
+            min-height: 120px;
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            background: linear-gradient(135deg, #f8f9ff, #f0f4ff);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            padding: 20px;
         }
-        .btn:hover {
-            background-color: #2980b9;
+        
+        .file-input-label:hover {
+            border-color: #764ba2;
+            background: linear-gradient(135deg, #f0f4ff, #e8f0ff);
+            transform: translateY(-2px);
         }
-        .btn:disabled {
-            background-color: #bdc3c7;
-            cursor: not-allowed;
+        
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+            opacity: 0.6;
         }
-        .alert {
+        
+        .upload-text {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .upload-subtext {
+            font-size: 0.9em;
+            color: #888;
+        }
+        
+        .file-info {
+            margin-top: 15px;
             padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 5px;
+            background: rgba(103, 126, 234, 0.1);
+            border-radius: 10px;
+            font-size: 0.9em;
+            color: #555;
         }
-        .alert-error {
-            background-color: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: 600;
+            width: 100%;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(103, 126, 234, 0.3);
+        }
+        
+        .btn:disabled {
+            background: linear-gradient(135deg, #bdc3c7, #95a5a6);
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .alert {
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        
         .alert-success {
             background-color: #d4edda;
             color: #155724;
             border: 1px solid #c3e6cb;
         }
-        .file-info {
-            font-size: 0.9em;
+        
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }        .alert-error {
+            background: linear-gradient(135deg, #ffebee, #fce4ec);
+            color: #c62828;
+            border-left-color: #e57373;
+        }
+        
+        .alert-success {
+            background: linear-gradient(135deg, #e8f5e8, #f1f8e9);
+            color: #2e7d32;
+            border-left-color: #81c784;
+        }
+        
+        .selected-file {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(76, 175, 80, 0.1);
+            border: 2px solid rgba(76, 175, 80, 0.3);
+            border-radius: 10px;
+            display: none;
+        }
+        
+        .file-details {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .file-icon {
+            font-size: 2em;
+        }
+        
+        .file-name {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .file-size {
             color: #666;
-            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            .logo {
+                font-size: 2em;
+            }
+            
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="logo">📤 {{ link.name }}</div>
+        <div class="logo">
+            📤 {{ link.name }}
+        </div>
         
         <div class="upload-info">
-            <h3>Upload Information</h3>
-            <p><strong>Remaining quota:</strong> {{ link.remaining_quota }} bytes</p>
-            <p><strong>Total quota:</strong> {{ link.max_file_size }} bytes</p>
-            {% match link.expires_at %}
-            {% when Some with (expires) %}
-            <p><strong>Link expires:</strong> {{ expires }}</p>
-            {% when None %}
-            {% endmatch %}
+            <h3>📊 Upload Information</h3>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="info-label">Remaining Quota</span>
+                    <span class="info-value" id="remainingQuota"></span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Total Quota</span>
+                    <span class="info-value" id="totalQuota"></span>
+                </div>
+                {% match link.expires_at %}
+                {% when Some with (expires) %}
+                <div class="info-item">
+                    <span class="info-label">Link Expires</span>
+                    <span class="info-value">{{ expires }}</span>
+                </div>
+                {% when None %}
+                {% endmatch %}
+            </div>
+            <div class="quota-bar">
+                <div class="quota-fill" id="quotaFill"></div>
+            </div>
         </div>
         
         {% match error %}
         {% when Some with (err) %}
         <div class="alert alert-error">
-            {{ err }}
+            ❌ {{ err }}
         </div>
         {% when None %}
         {% endmatch %}
@@ -110,41 +318,250 @@
         {% match success %}
         {% when Some with (msg) %}
         <div class="alert alert-success">
-            {{ msg }}
+            ✅ {{ msg }}
         </div>
         {% when None %}
         {% endmatch %}
         
         <form action="/upload/{{ link.token }}" method="post" enctype="multipart/form-data" id="uploadForm">
             <div class="form-group">
-                <label for="file">Select file to upload:</label>
-                <input type="file" id="file" name="file" required>
+                <label for="file">📁 Select file to upload:</label>
+                <div class="file-input-container">
+                    <input type="file" id="file" name="file" required>
+                    <div class="file-input-label">
+                        <div class="upload-icon">☁️</div>
+                        <div class="upload-text">Drop your file here or click to browse</div>
+                        <div class="upload-subtext">Maximum size based on remaining quota</div>
+                    </div>
+                </div>
+                <div class="selected-file" id="selectedFile">
+                    <div class="file-details">
+                        <div class="file-icon">📄</div>
+                        <div>
+                            <div class="file-name" id="fileName"></div>
+                            <div class="file-size" id="fileSize"></div>
+                        </div>
+                    </div>
+                </div>
                 <div class="file-info">
-                    Remaining quota: {{ link.remaining_quota }} bytes
+                    💡 Remaining quota: <span id="remainingQuotaText"></span>
                 </div>
             </div>
             
-            <button type="submit" class="btn" id="uploadBtn">Upload File</button>
+            <button type="submit" class="btn" id="uploadBtn">
+                🚀 Upload File
+            </button>
         </form>
     </div>
 
     <script>
-        document.getElementById('uploadForm').addEventListener('submit', function() {
+        const remainingQuota = {{ link.remaining_quota }};
+        const totalQuota = {{ link.max_file_size }};
+        
+        // Format bytes to human readable format
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+
+        // Update quota display
+        function updateQuotaDisplay() {
+            document.getElementById('remainingQuotaText').textContent = formatBytes(remainingQuota);
+            document.getElementById('remainingQuota').textContent = formatBytes(remainingQuota);
+            document.getElementById('totalQuota').textContent = formatBytes(totalQuota);
+            
+            const usedPercentage = ((totalQuota - remainingQuota) / totalQuota) * 100;
+            document.getElementById('quotaFill').style.width = usedPercentage + '%';
+        }
+
+        // Form submission handler
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault(); // Prevent default form submission
+            
             const btn = document.getElementById('uploadBtn');
+            const fileInput = document.getElementById('file');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('❌ Please select a file to upload');
+                return;
+            }
+            
+            // Check quota again before upload
+            if (file.size > remainingQuota) {
+                alert('❌ File size (' + formatBytes(file.size) + ') exceeds remaining quota (' + formatBytes(remainingQuota) + ')');
+                return;
+            }
+            
+            // Update button state
             btn.disabled = true;
-            btn.textContent = 'Uploading...';
+            btn.innerHTML = '⏳ Uploading...';
+            
+            // Clear any previous messages
+            clearMessages();
+            
+            // Create FormData for file upload
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Upload file via AJAX
+            fetch('/upload/{{ link.token }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (response.ok) {
+                    return response.text();
+                } else {
+                    throw new Error('Upload failed');
+                }
+            })
+            .then(html => {
+                // Check if the response contains success message
+                if (html.includes('✅') || html.includes('successfully')) {
+                    // Update remaining quota locally
+                    remainingQuota -= file.size;
+                    
+                    // Update quota display
+                    updateQuotaDisplay();
+                    
+                    // Show success message
+                    showMessage('✅ File uploaded successfully!', 'success');
+                    
+                    // Reset form
+                    fileInput.value = '';
+                    document.getElementById('selectedFile').style.display = 'none';
+                    
+                } else {
+                    // Extract error message from response if possible
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const errorElement = doc.querySelector('.alert-error');
+                    const errorMsg = errorElement ? errorElement.textContent.trim() : 'Upload failed';
+                    showMessage(errorMsg, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Upload error:', error);
+                showMessage('❌ Upload failed. Please try again.', 'error');
+            })
+            .finally(() => {
+                // Reset button state
+                btn.disabled = false;
+                btn.innerHTML = '🚀 Upload File';
+            });
         });
         
+        // Helper functions for messages
+        function showMessage(message, type) {
+            // Remove any existing messages
+            clearMessages();
+            
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type}`;
+            alertDiv.innerHTML = message;
+            
+            // Insert message before the form
+            const form = document.getElementById('uploadForm');
+            form.parentNode.insertBefore(alertDiv, form);
+            
+            // Auto-hide success messages after 5 seconds
+            if (type === 'success') {
+                setTimeout(() => {
+                    alertDiv.remove();
+                }, 5000);
+            }
+        }
+        
+        function clearMessages() {
+            const existingAlerts = document.querySelectorAll('.alert');
+            existingAlerts.forEach(alert => alert.remove());
+        }
+        
+        // File selection handler
         document.getElementById('file').addEventListener('change', function(e) {
             const file = e.target.files[0];
+            const selectedFileDiv = document.getElementById('selectedFile');
+            
             if (file) {
-                const remainingQuota = {{ link.remaining_quota }};
+                // Show selected file
+                document.getElementById('fileName').textContent = file.name;
+                document.getElementById('fileSize').textContent = formatBytes(file.size);
+                selectedFileDiv.style.display = 'block';
+                
+                // Check quota
                 if (file.size > remainingQuota) {
-                    alert('File size (' + Math.round(file.size / 1024 / 1024 * 10) / 10 + 'MB) exceeds remaining quota (' + Math.round(remainingQuota / 1024 / 1024 * 10) / 10 + 'MB)');
+                    alert('❌ File size (' + formatBytes(file.size) + ') exceeds remaining quota (' + formatBytes(remainingQuota) + ')');
                     e.target.value = '';
+                    selectedFileDiv.style.display = 'none';
+                    return;
                 }
+                
+                // Update upload icon based on file type
+                const fileIcon = document.querySelector('.file-icon');
+                if (file.type.startsWith('image/')) {
+                    fileIcon.textContent = '🖼️';
+                } else if (file.type.startsWith('video/')) {
+                    fileIcon.textContent = '🎥';
+                } else if (file.type.startsWith('audio/')) {
+                    fileIcon.textContent = '🎵';
+                } else if (file.type.includes('pdf')) {
+                    fileIcon.textContent = '📕';
+                } else if (file.type.includes('zip') || file.type.includes('archive')) {
+                    fileIcon.textContent = '📦';
+                } else {
+                    fileIcon.textContent = '📄';
+                }
+            } else {
+                selectedFileDiv.style.display = 'none';
             }
         });
+        
+        // Drag and drop handlers
+        const fileInputLabel = document.querySelector('.file-input-label');
+        
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            fileInputLabel.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            fileInputLabel.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            fileInputLabel.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight() {
+            fileInputLabel.style.backgroundColor = '#e8f0ff';
+            fileInputLabel.style.borderColor = '#764ba2';
+        }
+        
+        function unhighlight() {
+            fileInputLabel.style.backgroundColor = '';
+            fileInputLabel.style.borderColor = '#667eea';
+        }
+        
+        fileInputLabel.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            document.getElementById('file').files = files;
+            document.getElementById('file').dispatchEvent(new Event('change'));
+        }
+        
+        // Initialize
+        updateQuotaDisplay();
     </script>
 </body>
 </html>

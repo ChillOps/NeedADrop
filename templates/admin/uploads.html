@@ -147,8 +147,8 @@
                 <div class="stat-label">Total Uploads</div>
             </div>
             <div class="stat">
-                <div class="stat-number">Loading...</div>
-                <div class="stat-label">Total Size (MB)</div>
+                <div class="stat-number">{{ self.formatted_total_size() }}</div>
+                <div class="stat-label">Total Size</div>
             </div>
         </div>
         
@@ -165,7 +165,7 @@
                 <h3 style="margin: 0; color: #2c3e50;">{{ link.name }}</h3>
                 <div style="margin-top: 8px; font-size: 0.9em; color: #666;">
                     <span>Created: {{ link.created_at }}</span> | 
-                    <span>Max Size: {{ link.max_file_size }} bytes</span> |
+                    <span>Max Size: {{ link.formatted_max_size() }}</span> |
                     <span>Token: {{ link.token }}</span> |
                     {% match link.expires_at %}
                     {% when Some with (expires) %}
@@ -195,7 +195,7 @@
                         <td>
                             <div class="file-info">{{ upload.original_filename }}</div>
                         </td>
-                        <td class="size">{{ upload.file_size }} bytes</td>
+                        <td class="size">{{ upload.formatted_size() }}</td>
                         <td>{{ upload.mime_type }}</td>
                         <td>{{ upload.uploaded_at }}</td>
                         <td>

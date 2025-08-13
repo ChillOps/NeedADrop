@@ -38,7 +38,20 @@ pub struct Admin {
 pub struct CreateLinkForm {
     pub name: String,
     pub max_file_size_mb: f64,
+    #[serde(deserialize_with = "deserialize_optional_int")]
     pub expires_in_hours: Option<i32>,
+}
+
+fn deserialize_optional_int<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = serde::Deserialize::deserialize(deserializer)?;
+    if s.trim().is_empty() {
+        Ok(None)
+    } else {
+        s.trim().parse::<i32>().map(Some).map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,10 +83,43 @@ impl UploadLink {
     pub fn can_accept_file(&self, file_size: i64) -> bool {
         self.is_valid() && self.remaining_quota >= file_size
     }
+    
+    pub fn formatted_max_size(&self) -> String {
+        format_file_size(self.max_file_size)
+    }
+    
+    pub fn formatted_remaining_quota(&self) -> String {
+        format_file_size(self.remaining_quota)
+    }
 }
 
 impl FileUpload {
     pub fn file_path(&self, upload_dir: &std::path::Path) -> std::path::PathBuf {
         upload_dir.join(&self.guest_folder).join(&self.stored_filename)
+    }
+    
+    pub fn formatted_size(&self) -> String {
+        format_file_size(self.file_size)
+    }
+}
+
+/// Format file size in bytes to human readable format
+pub fn format_file_size(size_bytes: i64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
+    const THRESHOLD: f64 = 1024.0;
+    
+    if size_bytes == 0 {
+        return "0 B".to_string();
+    }
+    
+    let size = size_bytes as f64;
+    let unit_index = (size.log10() / THRESHOLD.log10()).floor() as usize;
+    let unit_index = unit_index.min(UNITS.len() - 1);
+    
+    if unit_index == 0 {
+        format!("{} B", size_bytes)
+    } else {
+        let value = size / THRESHOLD.powi(unit_index as i32);
+        format!("{:.1} {}", value, UNITS[unit_index])
     }
 }

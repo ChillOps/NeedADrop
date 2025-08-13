@@ -32,6 +32,7 @@ pub struct AdminDashboardTemplate {
 pub struct AdminLinksTemplate {
     pub links: Vec<UploadLink>,
     pub username: String,
+    pub error: Option<String>,
 }
 
 #[derive(Template)]
@@ -46,6 +47,20 @@ pub struct CreateLinkTemplate {
 pub struct AdminUploadsTemplate {
     pub grouped_uploads: Vec<(UploadLink, Vec<FileUpload>)>,
     pub username: String,
+}
+
+impl AdminUploadsTemplate {
+    pub fn total_size(&self) -> i64 {
+        self.grouped_uploads
+            .iter()
+            .flat_map(|(_, uploads)| uploads)
+            .map(|upload| upload.file_size)
+            .sum()
+    }
+    
+    pub fn formatted_total_size(&self) -> String {
+        crate::models::format_file_size(self.total_size())
+    }
 }
 
 #[derive(Template)]

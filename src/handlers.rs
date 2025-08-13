@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Multipart, Path, State},
-    http::{header, StatusCode},
+    extract::{Multipart, Path, State, rejection::FormRejection},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Redirect},
     Form,
 };
@@ -15,6 +15,15 @@ use crate::{
     templates::*,
     AppState,
 };
+
+async fn get_session_from_headers(headers: &HeaderMap) -> Option<Session> {
+    let session_id = headers
+        .get(header::COOKIE)
+        .and_then(|header| header.to_str().ok())
+        .and_then(extract_session_id_from_cookies)?;
+    
+    get_session(session_id).await
+}
 
 pub async fn upload_form(
     Path(token): Path<String>,
@@ -213,9 +222,16 @@ pub async fn handle_login(
     State(state): State<AppState>,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
+    println!("Login attempt - username: '{}', password length: {}", form.username, form.password.len());
+    
     match get_admin_by_username(&state.db, &form.username).await {
         Ok(Some(admin)) => {
+            println!("Found admin user: {}", admin.username);
+            println!("Stored hash: {}", admin.password_hash);
+            println!("Provided password: '{}'", form.password);
+            
             if verify_password(&form.password, &admin.password_hash) {
+                println!("Password verification SUCCESS");
                 let session_id = create_session(admin.id, admin.username).await;
                 
                 let redirect = Redirect::to("/admin");
@@ -229,14 +245,15 @@ pub async fn handle_login(
                 );
                 
                 return response;
+            } else {
+                println!("Password verification FAILED");
             }
         }
-        Ok(None) => {}
-        Err(_) => {
-            return LoginTemplate {
-                error: Some("Database error".to_string()),
-            }
-            .into_response();
+        Ok(None) => {
+            println!("Admin user not found for username: '{}'", form.username);
+        }
+        Err(e) => {
+            println!("Database error: {}", e);
         }
     }
     
@@ -246,7 +263,15 @@ pub async fn handle_login(
     .into_response()
 }
 
-pub async fn admin_dashboard(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn admin_dashboard(
+    headers: HeaderMap,
+    State(state): State<AppState>
+) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     // Get stats for dashboard
     let active_links_count = match get_all_upload_links(&state.db).await {
         Ok(links) => links.iter().filter(|link| link.is_valid()).count(),
@@ -259,34 +284,68 @@ pub async fn admin_dashboard(State(state): State<AppState>) -> impl IntoResponse
     };
     
     AdminDashboardTemplate {
-        username: "admin".to_string(), // In a real app, get from session
+        username: session.username,
         active_links: active_links_count,
         total_uploads: total_uploads_count,
     }
+    .into_response()
 }
 
-pub async fn admin_links(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn admin_links(
+    headers: HeaderMap,
+    State(state): State<AppState>
+) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     match get_all_upload_links(&state.db).await {
         Ok(links) => AdminLinksTemplate {
             links,
-            username: "admin".to_string(),
+            username: session.username,
+            error: None,
         }
         .into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     }
 }
 
-pub async fn create_link_form() -> impl IntoResponse {
+pub async fn create_link_form(headers: HeaderMap) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     CreateLinkTemplate {
         error: None,
-        username: "admin".to_string(),
+        username: session.username,
     }
+    .into_response()
 }
 
 pub async fn handle_create_link(
+    headers: HeaderMap,
     State(state): State<AppState>,
-    Form(form): Form<CreateLinkForm>,
+    form_result: Result<Form<CreateLinkForm>, FormRejection>,
 ) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    // Handle form parsing errors
+    let form = match form_result {
+        Ok(Form(form)) => form,
+        Err(_) => {
+            return CreateLinkTemplate {
+                error: Some("Invalid form data. Please check that the expiration time is a valid number.".to_string()),
+                username: session.username,
+            }
+            .into_response();
+        }
+    };
+
     let max_file_size = (form.max_file_size_mb * 1024.0 * 1024.0) as i64;
     
     // Handle empty expiration field
@@ -304,23 +363,58 @@ pub async fn handle_create_link(
         Ok(_) => Redirect::to("/admin/links").into_response(),
         Err(_) => CreateLinkTemplate {
             error: Some("Failed to create upload link".to_string()),
-            username: "admin".to_string(),
+            username: session.username,
         }
         .into_response(),
     }
 }
 
 pub async fn delete_link(
+    headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    // Check if there are any uploads associated with this link
+    match get_file_uploads_by_link_id(&state.db, &id).await {
+        Ok(uploads) => {
+            if !uploads.is_empty() {
+                // There are uploads associated with this link, show error
+                let links = get_all_upload_links(&state.db).await.unwrap_or_default();
+                return AdminLinksTemplate {
+                    links,
+                    username: session.username,
+                    error: Some("Cannot delete link: it still has uploaded files. Please delete the files first.".to_string()),
+                }
+                .into_response();
+            }
+        }
+        Err(_) => {
+            // Database error checking uploads
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
+        }
+    }
+
+    // No uploads associated, safe to delete
     match delete_upload_link(&state.db, &id).await {
         Ok(_) => Redirect::to("/admin/links").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete link").into_response(),
     }
 }
 
-pub async fn admin_uploads(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn admin_uploads(
+    headers: HeaderMap,
+    State(state): State<AppState>
+) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     match get_all_file_uploads(&state.db).await {
         Ok(uploads) => {
             // Group uploads by link_id
@@ -361,7 +455,7 @@ pub async fn admin_uploads(State(state): State<AppState>) -> impl IntoResponse {
             
             AdminUploadsTemplate {
                 grouped_uploads: grouped_vec,
-                username: "admin".to_string(),
+                username: session.username,
             }
             .into_response()
         }
@@ -420,24 +514,36 @@ pub async fn delete_upload(
     }
 }
 
-pub async fn change_password_form() -> impl IntoResponse {
+pub async fn change_password_form(headers: HeaderMap) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     ChangePasswordTemplate {
         error: None,
         success: None,
-        username: "admin".to_string(),
+        username: session.username,
     }
+    .into_response()
 }
 
 pub async fn handle_change_password(
+    headers: HeaderMap,
     State(state): State<AppState>,
     Form(form): Form<ChangePasswordForm>,
 ) -> impl IntoResponse {
+    let session = match get_session_from_headers(&headers).await {
+        Some(session) => session,
+        None => return Redirect::to("/login").into_response(),
+    };
+
     // Validate that new passwords match
     if form.new_password != form.confirm_password {
         return ChangePasswordTemplate {
             error: Some("New passwords do not match".to_string()),
             success: None,
-            username: "admin".to_string(),
+            username: session.username,
         }
         .into_response();
     }
@@ -447,20 +553,20 @@ pub async fn handle_change_password(
         return ChangePasswordTemplate {
             error: Some("Password must be at least 6 characters long".to_string()),
             success: None,
-            username: "admin".to_string(),
+            username: session.username.clone(),
         }
         .into_response();
     }
 
-    // Get current admin user
-    match get_admin_by_username(&state.db, "admin").await {
+    // Get current admin user (using session username)
+    match get_admin_by_username(&state.db, &session.username).await {
         Ok(Some(admin)) => {
             // Verify current password
             if !verify_password(&form.current_password, &admin.password_hash) {
                 return ChangePasswordTemplate {
                     error: Some("Current password is incorrect".to_string()),
                     success: None,
-                    username: "admin".to_string(),
+                    username: session.username,
                 }
                 .into_response();
             }
@@ -472,24 +578,24 @@ pub async fn handle_change_password(
                     return ChangePasswordTemplate {
                         error: Some("Failed to hash new password".to_string()),
                         success: None,
-                        username: "admin".to_string(),
+                        username: session.username,
                     }
                     .into_response();
                 }
             };
 
             // Update password in database
-            match update_admin_password(&state.db, "admin", &new_hash).await {
+            match update_admin_password(&state.db, &session.username, &new_hash).await {
                 Ok(_) => ChangePasswordTemplate {
                     error: None,
                     success: Some("Password changed successfully!".to_string()),
-                    username: "admin".to_string(),
+                    username: session.username,
                 }
                 .into_response(),
                 Err(_) => ChangePasswordTemplate {
                     error: Some("Failed to update password in database".to_string()),
                     success: None,
-                    username: "admin".to_string(),
+                    username: session.username,
                 }
                 .into_response(),
             }
@@ -497,19 +603,28 @@ pub async fn handle_change_password(
         Ok(None) => ChangePasswordTemplate {
             error: Some("Admin user not found".to_string()),
             success: None,
-            username: "admin".to_string(),
+            username: session.username,
         }
         .into_response(),
         Err(_) => ChangePasswordTemplate {
             error: Some("Database error".to_string()),
             success: None,
-            username: "admin".to_string(),
+            username: session.username,
         }
         .into_response(),
     }
 }
 
-pub async fn logout() -> impl IntoResponse {
+pub async fn logout(headers: HeaderMap) -> impl IntoResponse {
+    // Extract session ID from cookie header and remove it from server-side store
+    if let Some(session_id) = headers
+        .get(header::COOKIE)
+        .and_then(|header| header.to_str().ok())
+        .and_then(extract_session_id_from_cookies)
+    {
+        remove_session(session_id).await;
+    }
+    
     let redirect = Redirect::to("/");
     let mut response = redirect.into_response();
     

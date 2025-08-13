@@ -1,5 +1,6 @@
 use axum::{
     extract::DefaultBodyLimit,
+    middleware,
     response::IntoResponse,
     routing::{get, post},
     Router,
@@ -23,6 +24,7 @@ mod database;
 
 use handlers::*;
 use database::*;
+use auth::auth_middleware;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -58,17 +60,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/login", get(login_form))
         .route("/login", post(handle_login))
         
-        // Admin routes (require authentication)
-        .route("/admin", get(admin_dashboard))
-        .route("/admin/links", get(admin_links))
-        .route("/admin/links/create", get(create_link_form))
-        .route("/admin/links/create", post(handle_create_link))
-        .route("/admin/links/:id/delete", post(delete_link))
-        .route("/admin/uploads", get(admin_uploads))
-        .route("/admin/uploads/:id/download", get(download_file))
-        .route("/admin/uploads/:id/delete", post(delete_upload))
-        .route("/admin/change-password", get(change_password_form))
-        .route("/admin/change-password", post(handle_change_password))
+        // Admin routes (require authentication) - nested with middleware
+        .nest(
+            "/admin",
+            Router::new()
+                .route("/", get(admin_dashboard))
+                .route("/links", get(admin_links))
+                .route("/links/create", get(create_link_form))
+                .route("/links/create", post(handle_create_link))
+                .route("/links/:id/delete", post(delete_link))
+                .route("/uploads", get(admin_uploads))
+                .route("/uploads/:id/download", get(download_file))
+                .route("/uploads/:id/delete", post(delete_upload))
+                .route("/change-password", get(change_password_form))
+                .route("/change-password", post(handle_change_password))
+                .route_layer(middleware::from_fn(auth_middleware))
+        )
         .route("/logout", post(logout))
         
         // Static files

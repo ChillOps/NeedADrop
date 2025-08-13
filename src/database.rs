@@ -2,10 +2,36 @@ use chrono::Utc;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 use crate::models::*;
+use std::path::Path;
+use tokio::fs;
 
 pub async fn init_database() -> Result<SqlitePool, sqlx::Error> {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "sqlite:needadrop.db".to_string());
+    
+    // Extract the file path from the database URL
+    let db_path = database_url.strip_prefix("sqlite:").unwrap_or(&database_url);
+    
+    // Create the database file if it doesn't exist
+    if !Path::new(db_path).exists() {
+        // Create parent directories if they don't exist
+        if let Some(parent) = Path::new(db_path).parent() {
+            fs::create_dir_all(parent).await.map_err(|e| {
+                sqlx::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to create database directory: {}", e)
+                ))
+            })?;
+        }
+        
+        // Create empty database file
+        fs::File::create(db_path).await.map_err(|e| {
+            sqlx::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to create database file: {}", e)
+            ))
+        })?;
+    }
     
     let pool = SqlitePool::connect(&database_url).await?;
     
@@ -242,6 +268,17 @@ pub async fn get_all_file_uploads(pool: &SqlitePool) -> Result<Vec<FileUpload>, 
     let uploads = sqlx::query_as::<_, FileUpload>(
         "SELECT id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder FROM file_uploads ORDER BY uploaded_at DESC"
     )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(uploads)
+}
+
+pub async fn get_file_uploads_by_link_id(pool: &SqlitePool, link_id: &str) -> Result<Vec<FileUpload>, sqlx::Error> {
+    let uploads = sqlx::query_as::<_, FileUpload>(
+        "SELECT id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder FROM file_uploads WHERE link_id = ? ORDER BY uploaded_at DESC"
+    )
+    .bind(link_id)
     .fetch_all(pool)
     .await?;
 
