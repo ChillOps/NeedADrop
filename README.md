@@ -1,54 +1,6 @@
 # NeedADrop
 
-A secure file upload application built with Rust and Axum framewSee [LOGGING.md](LOGGING.md) for detailed documentation.
-
-## 🏗️ CI/CD & G### Development
-
-### Local Setup
-```bash
-# Build and run
-cargo run
-
-# Run tests
-cargo test
-
-# Security audit
-cargo audit
-
-# Format code
-cargo fmt
-
-# Check for outdated dependencies
-cargo outdated
-```
-
-### Current Dependency Status (Updated August 2025)
-```toml
-[dependencies]
-axum = { version = "0.8", features = ["multipart", "macros"] }  # Latest web framework
-tokio = { version = "1.47", features = ["full"] }              # Async runtime
-tower = "0.5"                                                  # Service abstraction layer
-tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }  # HTTP middleware
-rusqlite = { version = "0.37", features = ["chrono", "bundled"] }      # SQLite database
-bcrypt = "0.17"                                                # Password hashing
-chrono = { version = "0.4", features = ["serde"] }            # Date/time handling
-tracing = "0.1"                                                # Structured logging
-```
-
-### Code Quality & Security
-- **✅ No Security Vulnerabilities**: All dependencies audited and secure
-- **🔧 Code Formatting**: Consistent style with `cargo fmt`
-- **🔍 Linting**: Code quality enforced with `cargo clippy`
-- **📦 Latest Dependencies**: All dependencies updated to latest versions (August 2025)
-- **🛡️ Security Auditing**: Automated vulnerability scanning
-
-**Latest Update Results:**
-- Security vulnerabilities: **0 found** ✅
-- Dependencies: **All up to date** ✅ (Axum 0.8, Tower 0.5, Rusqlite 0.37, Tower-HTTP 0.6)
-- Code formatting: **Clean** ✅
-- Compilation: **Successful** ✅
-
-### Contributingota-based uploads, admin interface, and session-based authentication.
+A secure file upload application built with Rust and Axum framework. Features quota-based uploads, admin interface, and session-based authentication.
 
 ## ✨ Features
 
@@ -90,7 +42,7 @@ cargo run
 ## 🔧 Configuration
 
 Environment variables:
-- `DATABASE_URL`: SQLite database path (default: `sqlite://needladrop.db`)
+- `DATABASE_URL`: SQLite database path (default: `sqlite://needadrop.db`)
 - `UPLOAD_DIR`: Directory for uploads (default: `./uploads`)
 - `PORT`: Server port (default: `3000`)
 - `RUST_LOG`: Logging level (default: `info`)
@@ -107,13 +59,13 @@ RUST_LOG=warn                    # Warnings and errors only
 RUST_LOG=error                   # Errors only
 
 # Module-specific logging
-RUST_LOG=needladrop=debug,info   # Debug for app, info for dependencies
-RUST_LOG=needladrop::handlers=debug,needladrop::database=info,warn
+RUST_LOG=needadrop=debug,info   # Debug for app, info for dependencies
+RUST_LOG=needadrop::handlers=debug,needadrop::database=info,warn
 
 # Examples
 cargo run                                    # Default INFO level
 RUST_LOG=debug cargo run                     # Full debug output
-RUST_LOG=needladrop=warn,warn cargo run      # Minimal logging
+RUST_LOG=needadrop=warn,warn cargo run      # Minimal logging
 ```
 
 **Log Features:**
@@ -124,14 +76,6 @@ RUST_LOG=needladrop=warn,warn cargo run      # Minimal logging
 - 🔍 **Contextual Info**: User IDs, file names, link IDs, etc.
 
 See [LOGGING.md](LOGGING.md) for detailed documentation.
-
-## 🔧 Configuration
-
-Environment variables:
-- `DATABASE_URL`: SQLite database path (default: `sqlite://needadrop.db`)
-- `UPLOAD_DIR`: Directory for uploads (default: `./uploads`)
-- `PORT`: Server port (default: `3000`)
-- `RUST_LOG`: Logging level (default: `info`)
 
 ## 🏗️ CI/CD & GitHub Actions
 
@@ -210,7 +154,36 @@ cargo audit
 
 # Format code
 cargo fmt
+
+# Check for outdated dependencies
+cargo outdated
 ```
+
+### Current Dependency Status (Updated August 2025)
+```toml
+[dependencies]
+axum = { version = "0.8", features = ["multipart", "macros"] }  # Latest web framework
+tokio = { version = "1.47", features = ["full"] }              # Async runtime
+tower = "0.5"                                                  # Service abstraction layer
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }  # HTTP middleware
+rusqlite = { version = "0.37", features = ["chrono", "bundled"] }      # SQLite database
+bcrypt = "0.17"                                                # Password hashing
+chrono = { version = "0.4", features = ["serde"] }            # Date/time handling
+tracing = "0.1"                                                # Structured logging
+```
+
+### Code Quality & Security
+- **✅ No Security Vulnerabilities**: All dependencies audited and secure
+- **🔧 Code Formatting**: Consistent style with `cargo fmt`
+- **🔍 Linting**: Code quality enforced with `cargo clippy`
+- **📦 Latest Dependencies**: All dependencies updated to latest versions (August 2025)
+- **🛡️ Security Auditing**: Automated vulnerability scanning
+
+**Latest Update Results:**
+- Security vulnerabilities: **0 found** ✅
+- Dependencies: **All up to date** ✅ (Axum 0.8, Tower 0.5, Rusqlite 0.37, Tower-HTTP 0.6)
+- Code formatting: **Clean** ✅
+- Compilation: **Successful** ✅
 
 ### Contributing
 
