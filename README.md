@@ -1,6 +1,42 @@
 # NeedADrop
 
-A secure file upload application built with Rust and Axum framework. Features quota-based uploads, admin interface, and session-based authentication.
+A secure file upload applica## 🔧 Configuration
+
+Environment variables:
+- `DATABASE_URL`: SQLite database path (default: `sqlite://needladrop.db`)
+- `UPLOAD_DIR`: Directory for uploads (default: `./uploads`)
+- `PORT`: Server port (default: `3000`)
+- `RUST_LOG`: Logging level (default: `info`)
+
+### 📋 Logging Configuration
+
+NeedADrop uses structured logging with configurable levels:
+
+```bash
+# Basic logging levels
+RUST_LOG=info                    # Standard production logging
+RUST_LOG=debug                   # Detailed debugging information
+RUST_LOG=warn                    # Warnings and errors only
+RUST_LOG=error                   # Errors only
+
+# Module-specific logging
+RUST_LOG=needladrop=debug,info   # Debug for app, info for dependencies
+RUST_LOG=needladrop::handlers=debug,needladrop::database=info,warn
+
+# Examples
+cargo run                                    # Default INFO level
+RUST_LOG=debug cargo run                     # Full debug output
+RUST_LOG=needladrop=warn,warn cargo run      # Minimal logging
+```
+
+**Log Features:**
+- 🎯 **Structured Data**: Key-value pairs for easy parsing
+- 📍 **Source Location**: File names and line numbers
+- 🧵 **Thread Information**: Multi-threaded request tracking
+- 🕐 **Timestamps**: Precise timing for debugging
+- 🔍 **Contextual Info**: User IDs, file names, link IDs, etc.
+
+See [LOGGING.md](LOGGING.md) for detailed documentation.ilt with Rust and Axum framework. Features quota-based uploads, admin interface, and session-based authentication.
 
 ## ✨ Features
 

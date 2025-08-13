@@ -30,7 +30,8 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
+    // Initialize logging with configurable level
+    init_logging();
 
     // Load environment variables
     dotenvy::dotenv().ok();
@@ -89,4 +90,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn index() -> impl IntoResponse {
     templates::IndexTemplate.into_response()
+}
+
+/// Initialize the logging system with configurable log levels
+fn init_logging() {
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+    // Get log level from environment variable, default to INFO
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("needadrop=info,info"));
+
+    tracing_subscriber::registry()
+        .with(
+            fmt::layer()
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true),
+        )
+        .with(env_filter)
+        .init();
+
+    info!("Logging system initialized");
 }

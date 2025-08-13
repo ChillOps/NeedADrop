@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use tokio::fs;
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::{auth::*, database::*, models::*, templates::*, AppState};
@@ -23,9 +24,12 @@ pub async fn upload_form(
     Path(token): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    debug!(token = %token, "Accessing upload form");
+
     match get_upload_link_by_token(&state.db, &token).await {
         Ok(Some(link)) => {
             if link.is_valid() {
+                debug!(link_id = %link.id, link_name = %link.name, "Valid upload link accessed");
                 UploadTemplate {
                     link,
                     error: None,
@@ -33,11 +37,18 @@ pub async fn upload_form(
                 }
                 .into_response()
             } else {
+                warn!(token = %token, "Expired or inactive upload link accessed");
                 (StatusCode::GONE, "Upload link has expired or is inactive").into_response()
             }
         }
-        Ok(None) => (StatusCode::NOT_FOUND, "Upload link not found").into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+        Ok(None) => {
+            warn!(token = %token, "Upload link not found");
+            (StatusCode::NOT_FOUND, "Upload link not found").into_response()
+        }
+        Err(e) => {
+            error!(token = %token, error = %e, "Database error while fetching upload link");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response()
+        }
     }
 }
 
@@ -46,10 +57,21 @@ pub async fn handle_upload(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    info!(token = %token, "File upload initiated");
+
     // Get upload link
     let link = match get_upload_link_by_token(&state.db, &token).await {
-        Ok(Some(link)) if link.is_valid() => link,
+        Ok(Some(link)) if link.is_valid() => {
+            debug!(
+                link_id = %link.id,
+                link_name = %link.name,
+                remaining_quota = link.remaining_quota,
+                "Valid upload link found"
+            );
+            link
+        }
         Ok(Some(_)) => {
+            warn!(token = %token, "Upload attempted with expired or inactive link");
             return UploadTemplate {
                 link: UploadLink {
                     id: String::new(),
@@ -64,12 +86,14 @@ pub async fn handle_upload(
                 error: Some("Upload link has expired or is inactive".to_string()),
                 success: None,
             }
-            .into_response()
+            .into_response();
         }
         Ok(None) => {
+            warn!(token = %token, "Upload attempted with non-existent link");
             return (StatusCode::NOT_FOUND, "Upload link not found").into_response();
         }
-        Err(_) => {
+        Err(e) => {
+            error!(token = %token, error = %e, "Database error while fetching upload link");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response();
         }
     };
@@ -86,9 +110,30 @@ pub async fn handle_upload(
                 .unwrap_or("application/octet-stream")
                 .to_string();
 
+            debug!(
+                filename = %filename,
+                content_type = %content_type,
+                link_id = %link.id,
+                "Processing uploaded file"
+            );
+
             let data = match field.bytes().await {
-                Ok(data) => data,
-                Err(_) => {
+                Ok(data) => {
+                    info!(
+                        filename = %filename,
+                        file_size_mb = data.len() as f64 / 1024.0 / 1024.0,
+                        link_id = %link.id,
+                        "File data read successfully"
+                    );
+                    data
+                }
+                Err(e) => {
+                    error!(
+                        filename = %filename,
+                        link_id = %link.id,
+                        error = %e,
+                        "Failed to read uploaded file"
+                    );
                     return UploadTemplate {
                         link: link.clone(),
                         error: Some("Failed to read uploaded file".to_string()),
@@ -100,6 +145,13 @@ pub async fn handle_upload(
 
             // Check file size against remaining quota
             if !link.can_accept_file(data.len() as i64) {
+                warn!(
+                    filename = %filename,
+                    file_size_mb = data.len() as f64 / 1024.0 / 1024.0,
+                    remaining_quota_mb = link.remaining_quota as f64 / 1024.0 / 1024.0,
+                    link_id = %link.id,
+                    "File size exceeds remaining quota"
+                );
                 return UploadTemplate {
                     link: link.clone(),
                     error: Some(format!(
@@ -113,11 +165,21 @@ pub async fn handle_upload(
                 .into_response();
             }
 
-            // Create guest folder
+            // Create guest directory
             let guest_folder = Uuid::new_v4().to_string();
             let guest_dir = state.upload_dir.join(&guest_folder);
 
+            debug!(
+                guest_folder = %guest_folder,
+                guest_dir = %guest_dir.display(),
+                "Creating upload directory"
+            );
+
             if (fs::create_dir_all(&guest_dir).await).is_err() {
+                error!(
+                    guest_dir = %guest_dir.display(),
+                    "Failed to create upload directory"
+                );
                 return UploadTemplate {
                     link: link.clone(),
                     error: Some("Failed to create upload directory".to_string()),
@@ -140,29 +202,54 @@ pub async fn handle_upload(
 
             let file_path = guest_dir.join(&stored_filename);
 
+            debug!(
+                original_filename = %filename,
+                stored_filename = %stored_filename,
+                file_path = %file_path.display(),
+                "Generated unique filename"
+            );
+
             // Write file
             match fs::write(&file_path, &data).await {
                 Ok(_) => {
+                    debug!(
+                        file_path = %file_path.display(),
+                        file_size = data.len(),
+                        "File written to disk successfully"
+                    );
+
                     // Save to database
                     match create_file_upload(
                         &state.db,
                         link.id.clone(),
-                        filename,
-                        stored_filename,
+                        filename.clone(),
+                        stored_filename.clone(),
                         data.len() as i64,
                         content_type,
-                        guest_folder,
+                        guest_folder.clone(),
                     )
                     .await
                     {
                         Ok(_) => {
+                            info!(
+                                original_filename = %filename,
+                                stored_filename = %stored_filename,
+                                file_size_mb = data.len() as f64 / 1024.0 / 1024.0,
+                                link_id = %link.id,
+                                guest_folder = %guest_folder,
+                                "File upload completed successfully"
+                            );
+
                             // Update remaining quota
                             if (update_remaining_quota(&state.db, &link.id, data.len() as i64)
                                 .await)
                                 .is_err()
                             {
                                 // Even if quota update fails, the file was uploaded successfully
-                                eprintln!("Failed to update remaining quota for link {}", link.id);
+                                error!(
+                                    link_id = %link.id,
+                                    "Failed to update remaining quota for link"
+                                );
                             }
 
                             return UploadTemplate {
@@ -172,7 +259,15 @@ pub async fn handle_upload(
                             }
                             .into_response();
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            error!(
+                                original_filename = %filename,
+                                stored_filename = %stored_filename,
+                                link_id = %link.id,
+                                error = %e,
+                                "Failed to save upload information to database"
+                            );
+
                             // Clean up file on database error
                             let _ = fs::remove_file(&file_path).await;
                             let _ = fs::remove_dir(&guest_dir).await;
@@ -186,7 +281,13 @@ pub async fn handle_upload(
                         }
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    error!(
+                        file_path = %file_path.display(),
+                        error = %e,
+                        "Failed to write file to disk"
+                    );
+
                     return UploadTemplate {
                         link: link.clone(),
                         error: Some("Failed to save uploaded file".to_string()),
@@ -214,14 +315,14 @@ pub async fn handle_login(
     State(state): State<AppState>,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
-    println!("Login attempt - username: '{}'", form.username);
+    info!(username = %form.username, "Login attempt");
 
     match get_admin_by_username(&state.db, &form.username).await {
         Ok(Some(admin)) => {
-            println!("Found admin user: {}", admin.username);
+            debug!(admin_id = %admin.id, username = %admin.username, "Found admin user");
 
             if verify_password(&form.password, &admin.password_hash) {
-                println!("Password verification SUCCESS");
+                info!(admin_id = %admin.id, username = %admin.username, "Password verification successful");
                 let session_id = create_session(admin.id, admin.username).await;
 
                 let redirect = Redirect::to("/admin");
@@ -238,14 +339,14 @@ pub async fn handle_login(
 
                 return response;
             } else {
-                println!("Password verification FAILED");
+                warn!(username = %form.username, "Password verification failed");
             }
         }
         Ok(None) => {
-            println!("Admin user not found for username: '{}'", form.username);
+            warn!(username = %form.username, "Admin user not found");
         }
         Err(e) => {
-            println!("Database error: {}", e);
+            error!(username = %form.username, error = %e, "Database error during login");
         }
     }
 

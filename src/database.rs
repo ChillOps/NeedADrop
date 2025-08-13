@@ -3,11 +3,14 @@ use chrono::Utc;
 use sqlx::SqlitePool;
 use std::path::Path;
 use tokio::fs;
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 pub async fn init_database() -> Result<SqlitePool, sqlx::Error> {
     let database_url =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:needadrop.db".to_string());
+
+    info!(database_url = %database_url, "Initializing database");
 
     // Extract the file path from the database URL
     let db_path = database_url
@@ -16,9 +19,13 @@ pub async fn init_database() -> Result<SqlitePool, sqlx::Error> {
 
     // Create the database file if it doesn't exist
     if !Path::new(db_path).exists() {
+        info!(db_path = %db_path, "Database file doesn't exist, creating new one");
+
         // Create parent directories if they don't exist
         if let Some(parent) = Path::new(db_path).parent() {
+            debug!(parent_dir = %parent.display(), "Creating database parent directories");
             fs::create_dir_all(parent).await.map_err(|e| {
+                error!(parent_dir = %parent.display(), error = %e, "Failed to create database directory");
                 sqlx::Error::Io(std::io::Error::other(format!(
                     "Failed to create database directory: {}",
                     e
@@ -28,21 +35,31 @@ pub async fn init_database() -> Result<SqlitePool, sqlx::Error> {
 
         // Create empty database file
         fs::File::create(db_path).await.map_err(|e| {
+            error!(db_path = %db_path, error = %e, "Failed to create database file");
             sqlx::Error::Io(std::io::Error::other(format!(
                 "Failed to create database file: {}",
                 e
             )))
         })?;
+    } else {
+        debug!(db_path = %db_path, "Database file already exists");
     }
 
-    let pool = SqlitePool::connect(&database_url).await?;
+    debug!("Connecting to database");
+    let pool = SqlitePool::connect(&database_url).await.map_err(|e| {
+        error!(database_url = %database_url, error = %e, "Failed to connect to database");
+        e
+    })?;
 
     // Run migrations
+    info!("Running database migrations");
     create_tables(&pool).await?;
 
     // Create default admin user if none exists
+    info!("Checking for default admin user");
     create_default_admin(&pool).await?;
 
+    info!("Database initialization completed successfully");
     Ok(pool)
 }
 
