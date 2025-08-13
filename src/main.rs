@@ -110,8 +110,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .route("/", get(admin_dashboard))
                 // Upload link management
                 .route("/links", get(admin_links)) // Display all upload links
-                .route("/links/new", get(create_link_form)) // Create new upload link form
-                .route("/links/new", post(handle_create_link)) // Process new upload link
+                .route("/links/create", get(create_link_form)) // Create new upload link form
+                .route("/links/create", post(handle_create_link)) // Process new upload link
                 .route("/links/{id}/delete", post(delete_link)) // Delete upload link
                 // File management
                 .route("/uploads", get(admin_uploads)) // View all uploaded files
