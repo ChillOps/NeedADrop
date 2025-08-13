@@ -1,17 +1,19 @@
+use crate::models::*;
 use chrono::Utc;
 use sqlx::SqlitePool;
-use uuid::Uuid;
-use crate::models::*;
 use std::path::Path;
 use tokio::fs;
+use uuid::Uuid;
 
 pub async fn init_database() -> Result<SqlitePool, sqlx::Error> {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:needadrop.db".to_string());
-    
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:needadrop.db".to_string());
+
     // Extract the file path from the database URL
-    let db_path = database_url.strip_prefix("sqlite:").unwrap_or(&database_url);
-    
+    let db_path = database_url
+        .strip_prefix("sqlite:")
+        .unwrap_or(&database_url);
+
     // Create the database file if it doesn't exist
     if !Path::new(db_path).exists() {
         // Create parent directories if they don't exist
@@ -19,28 +21,28 @@ pub async fn init_database() -> Result<SqlitePool, sqlx::Error> {
             fs::create_dir_all(parent).await.map_err(|e| {
                 sqlx::Error::Io(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("Failed to create database directory: {}", e)
+                    format!("Failed to create database directory: {}", e),
                 ))
             })?;
         }
-        
+
         // Create empty database file
         fs::File::create(db_path).await.map_err(|e| {
             sqlx::Error::Io(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                format!("Failed to create database file: {}", e)
+                format!("Failed to create database file: {}", e),
             ))
         })?;
     }
-    
+
     let pool = SqlitePool::connect(&database_url).await?;
-    
+
     // Run migrations
     create_tables(&pool).await?;
-    
+
     // Create default admin user if none exists
     create_default_admin(&pool).await?;
-    
+
     Ok(pool)
 }
 
@@ -81,11 +83,13 @@ async fn create_tables(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let _ = sqlx::query("ALTER TABLE upload_links ADD COLUMN remaining_quota INTEGER DEFAULT 0")
         .execute(pool)
         .await;
-    
+
     // Update existing links to have remaining_quota = max_file_size if remaining_quota is 0
-    sqlx::query("UPDATE upload_links SET remaining_quota = max_file_size WHERE remaining_quota = 0")
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE upload_links SET remaining_quota = max_file_size WHERE remaining_quota = 0",
+    )
+    .execute(pool)
+    .await?;
 
     // Create file_uploads table
     sqlx::query(
@@ -118,9 +122,9 @@ async fn create_default_admin(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         let admin_id = Uuid::new_v4().to_string();
         let password_hash = bcrypt::hash("admin123", bcrypt::DEFAULT_COST)
             .map_err(|e| sqlx::Error::Protocol(format!("Password hashing failed: {}", e)))?;
-        
+
         sqlx::query(
-            "INSERT INTO admins (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)"
+            "INSERT INTO admins (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
         )
         .bind(&admin_id)
         .bind("admin")
@@ -135,9 +139,12 @@ async fn create_default_admin(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-pub async fn get_admin_by_username(pool: &SqlitePool, username: &str) -> Result<Option<Admin>, sqlx::Error> {
+pub async fn get_admin_by_username(
+    pool: &SqlitePool,
+    username: &str,
+) -> Result<Option<Admin>, sqlx::Error> {
     let admin = sqlx::query_as::<_, Admin>(
-        "SELECT id, username, password_hash, created_at FROM admins WHERE username = ?"
+        "SELECT id, username, password_hash, created_at FROM admins WHERE username = ?",
     )
     .bind(username)
     .fetch_optional(pool)
@@ -183,7 +190,11 @@ pub async fn create_upload_link(
     .await?;
 
     Ok(link)
-}pub async fn get_upload_link_by_token(pool: &SqlitePool, token: &str) -> Result<Option<UploadLink>, sqlx::Error> {
+}
+pub async fn get_upload_link_by_token(
+    pool: &SqlitePool,
+    token: &str,
+) -> Result<Option<UploadLink>, sqlx::Error> {
     let link = sqlx::query_as::<_, UploadLink>(
         "SELECT id, token, name, max_file_size, remaining_quota, expires_at, created_at, is_active FROM upload_links WHERE token = ?"
     )
@@ -194,7 +205,10 @@ pub async fn create_upload_link(
     Ok(link)
 }
 
-pub async fn get_upload_link_by_id(pool: &SqlitePool, id: &str) -> Result<Option<UploadLink>, sqlx::Error> {
+pub async fn get_upload_link_by_id(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<Option<UploadLink>, sqlx::Error> {
     let link = sqlx::query_as::<_, UploadLink>(
         "SELECT id, token, name, max_file_size, remaining_quota, expires_at, created_at, is_active FROM upload_links WHERE id = ?"
     )
@@ -274,7 +288,10 @@ pub async fn get_all_file_uploads(pool: &SqlitePool) -> Result<Vec<FileUpload>, 
     Ok(uploads)
 }
 
-pub async fn get_file_uploads_by_link_id(pool: &SqlitePool, link_id: &str) -> Result<Vec<FileUpload>, sqlx::Error> {
+pub async fn get_file_uploads_by_link_id(
+    pool: &SqlitePool,
+    link_id: &str,
+) -> Result<Vec<FileUpload>, sqlx::Error> {
     let uploads = sqlx::query_as::<_, FileUpload>(
         "SELECT id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder FROM file_uploads WHERE link_id = ? ORDER BY uploaded_at DESC"
     )
@@ -285,7 +302,10 @@ pub async fn get_file_uploads_by_link_id(pool: &SqlitePool, link_id: &str) -> Re
     Ok(uploads)
 }
 
-pub async fn get_file_upload_by_id(pool: &SqlitePool, id: &str) -> Result<Option<FileUpload>, sqlx::Error> {
+pub async fn get_file_upload_by_id(
+    pool: &SqlitePool,
+    id: &str,
+) -> Result<Option<FileUpload>, sqlx::Error> {
     let upload = sqlx::query_as::<_, FileUpload>(
         "SELECT id, link_id, original_filename, stored_filename, file_size, mime_type, uploaded_at, guest_folder FROM file_uploads WHERE id = ?"
     )
@@ -296,7 +316,11 @@ pub async fn get_file_upload_by_id(pool: &SqlitePool, id: &str) -> Result<Option
     Ok(upload)
 }
 
-pub async fn update_admin_password(pool: &SqlitePool, username: &str, new_password_hash: &str) -> Result<(), sqlx::Error> {
+pub async fn update_admin_password(
+    pool: &SqlitePool,
+    username: &str,
+    new_password_hash: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE admins SET password_hash = ? WHERE username = ?")
         .bind(new_password_hash)
         .bind(username)
@@ -306,7 +330,11 @@ pub async fn update_admin_password(pool: &SqlitePool, username: &str, new_passwo
     Ok(())
 }
 
-pub async fn update_remaining_quota(pool: &SqlitePool, link_id: &str, uploaded_size: i64) -> Result<(), sqlx::Error> {
+pub async fn update_remaining_quota(
+    pool: &SqlitePool,
+    link_id: &str,
+    uploaded_size: i64,
+) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE upload_links SET remaining_quota = remaining_quota - ? WHERE id = ?")
         .bind(uploaded_size)
         .bind(link_id)

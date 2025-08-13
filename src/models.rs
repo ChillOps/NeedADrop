@@ -7,7 +7,7 @@ pub struct UploadLink {
     pub id: String,
     pub token: String,
     pub name: String,
-    pub max_file_size: i64, // total quota in bytes
+    pub max_file_size: i64,   // total quota in bytes
     pub remaining_quota: i64, // remaining quota in bytes
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -50,7 +50,10 @@ where
     if s.trim().is_empty() {
         Ok(None)
     } else {
-        s.trim().parse::<i32>().map(Some).map_err(serde::de::Error::custom)
+        s.trim()
+            .parse::<i32>()
+            .map(Some)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -75,19 +78,19 @@ impl UploadLink {
             false
         }
     }
-    
+
     pub fn is_valid(&self) -> bool {
         self.is_active && !self.is_expired() && self.remaining_quota > 0
     }
-    
+
     pub fn can_accept_file(&self, file_size: i64) -> bool {
         self.is_valid() && self.remaining_quota >= file_size
     }
-    
+
     pub fn formatted_max_size(&self) -> String {
         format_file_size(self.max_file_size)
     }
-    
+
     pub fn formatted_remaining_quota(&self) -> String {
         format_file_size(self.remaining_quota)
     }
@@ -95,9 +98,11 @@ impl UploadLink {
 
 impl FileUpload {
     pub fn file_path(&self, upload_dir: &std::path::Path) -> std::path::PathBuf {
-        upload_dir.join(&self.guest_folder).join(&self.stored_filename)
+        upload_dir
+            .join(&self.guest_folder)
+            .join(&self.stored_filename)
     }
-    
+
     pub fn formatted_size(&self) -> String {
         format_file_size(self.file_size)
     }
@@ -107,15 +112,15 @@ impl FileUpload {
 pub fn format_file_size(size_bytes: i64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB", "TB"];
     const THRESHOLD: f64 = 1024.0;
-    
+
     if size_bytes == 0 {
         return "0 B".to_string();
     }
-    
+
     let size = size_bytes as f64;
     let unit_index = (size.log10() / THRESHOLD.log10()).floor() as usize;
     let unit_index = unit_index.min(UNITS.len() - 1);
-    
+
     if unit_index == 0 {
         format!("{} B", size_bytes)
     } else {

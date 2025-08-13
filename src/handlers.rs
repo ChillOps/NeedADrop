@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Multipart, Path, State, rejection::FormRejection},
+    extract::{rejection::FormRejection, Multipart, Path, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Redirect},
     Form,
@@ -8,20 +8,14 @@ use chrono::{Duration, Utc};
 use tokio::fs;
 use uuid::Uuid;
 
-use crate::{
-    auth::*,
-    database::*,
-    models::*,
-    templates::*,
-    AppState,
-};
+use crate::{auth::*, database::*, models::*, templates::*, AppState};
 
 async fn get_session_from_headers(headers: &HeaderMap) -> Option<Session> {
     let session_id = headers
         .get(header::COOKIE)
         .and_then(|header| header.to_str().ok())
         .and_then(extract_session_id_from_cookies)?;
-    
+
     get_session(session_id).await
 }
 
@@ -39,11 +33,7 @@ pub async fn upload_form(
                 }
                 .into_response()
             } else {
-                (
-                    StatusCode::GONE,
-                    "Upload link has expired or is inactive",
-                )
-                    .into_response()
+                (StatusCode::GONE, "Upload link has expired or is inactive").into_response()
             }
         }
         Ok(None) => (StatusCode::NOT_FOUND, "Upload link not found").into_response(),
@@ -87,16 +77,15 @@ pub async fn handle_upload(
     // Process uploaded file
     while let Some(field) = multipart.next_field().await.unwrap_or(None) {
         let name = field.name().unwrap_or("").to_string();
-        
+
         if name == "file" {
-            let filename = field.file_name()
-                .unwrap_or("unnamed_file")
-                .to_string();
-            
-            let content_type = field.content_type()
+            let filename = field.file_name().unwrap_or("unnamed_file").to_string();
+
+            let content_type = field
+                .content_type()
                 .unwrap_or("application/octet-stream")
                 .to_string();
-            
+
             let data = match field.bytes().await {
                 Ok(data) => data,
                 Err(_) => {
@@ -108,7 +97,7 @@ pub async fn handle_upload(
                     .into_response();
                 }
             };
-            
+
             // Check file size against remaining quota
             if !link.can_accept_file(data.len() as i64) {
                 return UploadTemplate {
@@ -123,11 +112,11 @@ pub async fn handle_upload(
                 }
                 .into_response();
             }
-            
+
             // Create guest folder
             let guest_folder = Uuid::new_v4().to_string();
             let guest_dir = state.upload_dir.join(&guest_folder);
-            
+
             if let Err(_) = fs::create_dir_all(&guest_dir).await {
                 return UploadTemplate {
                     link: link.clone(),
@@ -136,21 +125,21 @@ pub async fn handle_upload(
                 }
                 .into_response();
             }
-            
+
             // Generate unique filename
             let extension = std::path::Path::new(&filename)
                 .extension()
                 .and_then(|ext| ext.to_str())
                 .unwrap_or("");
-            
+
             let stored_filename = if extension.is_empty() {
                 Uuid::new_v4().to_string()
             } else {
                 format!("{}.{}", Uuid::new_v4(), extension)
             };
-            
+
             let file_path = guest_dir.join(&stored_filename);
-            
+
             // Write file
             match fs::write(&file_path, &data).await {
                 Ok(_) => {
@@ -168,11 +157,13 @@ pub async fn handle_upload(
                     {
                         Ok(_) => {
                             // Update remaining quota
-                            if let Err(_) = update_remaining_quota(&state.db, &link.id, data.len() as i64).await {
+                            if let Err(_) =
+                                update_remaining_quota(&state.db, &link.id, data.len() as i64).await
+                            {
                                 // Even if quota update fails, the file was uploaded successfully
                                 eprintln!("Failed to update remaining quota for link {}", link.id);
                             }
-                            
+
                             return UploadTemplate {
                                 link: link.clone(),
                                 error: None,
@@ -184,7 +175,7 @@ pub async fn handle_upload(
                             // Clean up file on database error
                             let _ = fs::remove_file(&file_path).await;
                             let _ = fs::remove_dir(&guest_dir).await;
-                            
+
                             return UploadTemplate {
                                 link: link.clone(),
                                 error: Some("Failed to save upload information".to_string()),
@@ -205,7 +196,7 @@ pub async fn handle_upload(
             }
         }
     }
-    
+
     UploadTemplate {
         link,
         error: Some("No file was uploaded".to_string()),
@@ -222,28 +213,34 @@ pub async fn handle_login(
     State(state): State<AppState>,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
-    println!("Login attempt - username: '{}', password length: {}", form.username, form.password.len());
-    
+    println!(
+        "Login attempt - username: '{}', password length: {}",
+        form.username,
+        form.password.len()
+    );
+
     match get_admin_by_username(&state.db, &form.username).await {
         Ok(Some(admin)) => {
             println!("Found admin user: {}", admin.username);
             println!("Stored hash: {}", admin.password_hash);
             println!("Provided password: '{}'", form.password);
-            
+
             if verify_password(&form.password, &admin.password_hash) {
                 println!("Password verification SUCCESS");
                 let session_id = create_session(admin.id, admin.username).await;
-                
+
                 let redirect = Redirect::to("/admin");
                 let mut response = redirect.into_response();
-                
+
                 // Set session cookie
-                let cookie = format!("session_id={}; Path=/; HttpOnly; SameSite=Strict", session_id);
-                response.headers_mut().insert(
-                    header::SET_COOKIE,
-                    cookie.parse().unwrap(),
+                let cookie = format!(
+                    "session_id={}; Path=/; HttpOnly; SameSite=Strict",
+                    session_id
                 );
-                
+                response
+                    .headers_mut()
+                    .insert(header::SET_COOKIE, cookie.parse().unwrap());
+
                 return response;
             } else {
                 println!("Password verification FAILED");
@@ -256,7 +253,7 @@ pub async fn handle_login(
             println!("Database error: {}", e);
         }
     }
-    
+
     LoginTemplate {
         error: Some("Invalid username or password".to_string()),
     }
@@ -265,7 +262,7 @@ pub async fn handle_login(
 
 pub async fn admin_dashboard(
     headers: HeaderMap,
-    State(state): State<AppState>
+    State(state): State<AppState>,
 ) -> impl IntoResponse {
     let session = match get_session_from_headers(&headers).await {
         Some(session) => session,
@@ -277,12 +274,12 @@ pub async fn admin_dashboard(
         Ok(links) => links.iter().filter(|link| link.is_valid()).count(),
         Err(_) => 0,
     };
-    
+
     let total_uploads_count = match get_all_file_uploads(&state.db).await {
         Ok(uploads) => uploads.len(),
         Err(_) => 0,
     };
-    
+
     AdminDashboardTemplate {
         username: session.username,
         active_links: active_links_count,
@@ -291,10 +288,7 @@ pub async fn admin_dashboard(
     .into_response()
 }
 
-pub async fn admin_links(
-    headers: HeaderMap,
-    State(state): State<AppState>
-) -> impl IntoResponse {
+pub async fn admin_links(headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
     let session = match get_session_from_headers(&headers).await {
         Some(session) => session,
         None => return Redirect::to("/login").into_response(),
@@ -339,7 +333,10 @@ pub async fn handle_create_link(
         Ok(Form(form)) => form,
         Err(_) => {
             return CreateLinkTemplate {
-                error: Some("Invalid form data. Please check that the expiration time is a valid number.".to_string()),
+                error: Some(
+                    "Invalid form data. Please check that the expiration time is a valid number."
+                        .to_string(),
+                ),
                 username: session.username,
             }
             .into_response();
@@ -347,7 +344,7 @@ pub async fn handle_create_link(
     };
 
     let max_file_size = (form.max_file_size_mb * 1024.0 * 1024.0) as i64;
-    
+
     // Handle empty expiration field
     let expires_at = if let Some(hours) = form.expires_in_hours {
         if hours > 0 {
@@ -358,7 +355,7 @@ pub async fn handle_create_link(
     } else {
         None
     };
-    
+
     match create_upload_link(&state.db, form.name, max_file_size, expires_at).await {
         Ok(_) => Redirect::to("/admin/links").into_response(),
         Err(_) => CreateLinkTemplate {
@@ -406,10 +403,7 @@ pub async fn delete_link(
     }
 }
 
-pub async fn admin_uploads(
-    headers: HeaderMap,
-    State(state): State<AppState>
-) -> impl IntoResponse {
+pub async fn admin_uploads(headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
     let session = match get_session_from_headers(&headers).await {
         Some(session) => session,
         None => return Redirect::to("/login").into_response(),
@@ -418,13 +412,18 @@ pub async fn admin_uploads(
     match get_all_file_uploads(&state.db).await {
         Ok(uploads) => {
             // Group uploads by link_id
-            let mut grouped_uploads: std::collections::HashMap<String, (UploadLink, Vec<FileUpload>)> = std::collections::HashMap::new();
-            
+            let mut grouped_uploads: std::collections::HashMap<
+                String,
+                (UploadLink, Vec<FileUpload>),
+            > = std::collections::HashMap::new();
+
             for upload in uploads {
                 if let Ok(Some(link)) = get_upload_link_by_id(&state.db, &upload.link_id).await {
-                    grouped_uploads.entry(upload.link_id.clone())
+                    grouped_uploads
+                        .entry(upload.link_id.clone())
                         .or_insert_with(|| (link, Vec::new()))
-                        .1.push(upload);
+                        .1
+                        .push(upload);
                 } else {
                     // If link is not found, create placeholder
                     let placeholder_link = UploadLink {
@@ -437,22 +436,25 @@ pub async fn admin_uploads(
                         created_at: Utc::now(),
                         is_active: false,
                     };
-                    grouped_uploads.entry(upload.link_id.clone())
+                    grouped_uploads
+                        .entry(upload.link_id.clone())
                         .or_insert_with(|| (placeholder_link, Vec::new()))
-                        .1.push(upload);
+                        .1
+                        .push(upload);
                 }
             }
-            
+
             // Convert to sorted vector for template
-            let mut grouped_vec: Vec<(UploadLink, Vec<FileUpload>)> = grouped_uploads.into_values().collect();
+            let mut grouped_vec: Vec<(UploadLink, Vec<FileUpload>)> =
+                grouped_uploads.into_values().collect();
             // Sort by link creation date (newest first)
             grouped_vec.sort_by(|a, b| b.0.created_at.cmp(&a.0.created_at));
-            
+
             // Sort files within each group by upload date (newest first)
             for (_, uploads) in &mut grouped_vec {
                 uploads.sort_by(|a, b| b.uploaded_at.cmp(&a.uploaded_at));
             }
-            
+
             AdminUploadsTemplate {
                 grouped_uploads: grouped_vec,
                 username: session.username,
@@ -470,7 +472,7 @@ pub async fn download_file(
     match get_file_upload_by_id(&state.db, &id).await {
         Ok(Some(upload)) => {
             let file_path = upload.file_path(&state.upload_dir);
-            
+
             match fs::read(&file_path).await {
                 Ok(data) => {
                     let headers = [
@@ -480,7 +482,7 @@ pub async fn download_file(
                             &format!("attachment; filename=\"{}\"", upload.original_filename),
                         ),
                     ];
-                    
+
                     (headers, data).into_response()
                 }
                 Err(_) => (StatusCode::NOT_FOUND, "File not found on disk").into_response(),
@@ -506,7 +508,9 @@ pub async fn delete_upload(
             // Delete from database
             match delete_file_upload(&state.db, &id).await {
                 Ok(_) => Redirect::to("/admin/uploads").into_response(),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete upload").into_response(),
+                Err(_) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete upload").into_response()
+                }
             }
         }
         Ok(None) => (StatusCode::NOT_FOUND, "Upload not found").into_response(),
@@ -624,16 +628,15 @@ pub async fn logout(headers: HeaderMap) -> impl IntoResponse {
     {
         remove_session(session_id).await;
     }
-    
+
     let redirect = Redirect::to("/");
     let mut response = redirect.into_response();
-    
+
     // Clear session cookie
     let cookie = "session_id=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0";
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        cookie.parse().unwrap(),
-    );
-    
+    response
+        .headers_mut()
+        .insert(header::SET_COOKIE, cookie.parse().unwrap());
+
     response
 }

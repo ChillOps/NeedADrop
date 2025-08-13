@@ -1,5 +1,5 @@
-use askama::Template;
 use crate::models::*;
+use askama::Template;
 
 #[derive(Template)]
 #[template(path = "index.html")]
@@ -57,7 +57,7 @@ impl AdminUploadsTemplate {
             .map(|upload| upload.file_size)
             .sum()
     }
-    
+
     pub fn formatted_total_size(&self) -> String {
         crate::models::format_file_size(self.total_size())
     }
