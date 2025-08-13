@@ -355,8 +355,8 @@
     </div>
 
     <script>
-        const remainingQuota = {{ link.remaining_quota }};
-        const totalQuota = {{ link.max_file_size }};
+        let remainingQuota = {{ link.remaining_quota }};
+        let totalQuota = {{ link.max_file_size }};
         
         // Format bytes to human readable format
         function formatBytes(bytes, decimals = 2) {
